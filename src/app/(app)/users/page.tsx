@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import EditUserModal from "@/components/EditUserModal";
 import UserTable from "@/components/UserTable";
-import { UserRole } from "@/generated/prisma";
+import { UserRole } from "@prisma/client";
 
 interface User {
   id: string;

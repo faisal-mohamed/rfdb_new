@@ -45,8 +45,44 @@ model User {
   // Relations
   createdUsers  User[]    @relation("UserCreatedBy")
   creator       User?     @relation("UserCreatedBy", fields: [createdBy], references: [id])
+  uploadedDocuments Document[] @relation("DocumentUploadedBy")
   
   // Future RBAC relations (empty for now)
   // permissions   UserPermission[]
   // auditLogs     AuditLog[]
+}
+
+enum DocumentStatus {
+  ACTIVE
+  ARCHIVED
+  DELETED
+}
+
+model Document {
+  id            String         @id @default(cuid())
+  fileName      String         // Original file name
+  fileType      String         // File extension (pdf, docx, png, etc.)
+  mimeType      String         // MIME type
+  fileSize      Int            // File size in bytes
+  fileContent   String         @db.Text // Base64 encoded file content
+  customerName  String         // Customer name associated with the document
+  uploadedDate  DateTime       // Date when document was uploaded (can be different from createdAt)
+  status        DocumentStatus @default(ACTIVE)
+  
+  // Metadata
+  description   String?        // Optional description
+  tags          String[]       // Optional tags for categorization
+  
+  // Audit fields
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  uploadedBy    String         // ID of user who uploaded the document
+  
+  // Relations
+  uploader      User           @relation("DocumentUploadedBy", fields: [uploadedBy], references: [id])
+  
+  @@index([customerName])
+  @@index([fileType])
+  @@index([uploadedDate])
+  @@index([uploadedBy])
 }
