@@ -67,24 +67,41 @@ export const authOptions: NextAuthOptions = {
   callbacks: {
     // Store user data in JWT token
     async jwt({ token, user }) {
+      console.log("=== JWT CALLBACK ===");
+      console.log("JWT token before:", token);
+      console.log("JWT user:", user);
+      
       if (user) {
+        token.id = user.id;
         token.role = user.role;
         token.userType = user.userType;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
+        
+        console.log("JWT token after adding user data:", token);
       }
+      
+      console.log("=== END JWT CALLBACK ===");
       return token;
     },
     
     // Make user data available in session
     async session({ session, token }) {
+      console.log("=== SESSION CALLBACK ===");
+      console.log("Session before:", session);
+      console.log("Token in session callback:", token);
+      
       if (token) {
-        session.user.id = token.sub!;
+        session.user.id = token.id as string;
         session.user.role = token.role as any;
         session.user.userType = token.userType as any;
         session.user.firstName = token.firstName as string;
         session.user.lastName = token.lastName as string;
+        
+        console.log("Session after adding token data:", session);
       }
+      
+      console.log("=== END SESSION CALLBACK ===");
       return session;
     }
   },

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
+import { getSimplePermissions } from '@/lib/simplePermissions';
+import { WorkflowStatus } from '@/types/workflow';
 
 // GET /api/documents - List documents with filtering and pagination
 export async function GET(request: NextRequest) {
@@ -12,10 +14,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if user has permission to view documents (ADMIN or EDITOR)
-    const userRole = session.user.role;
-    if (!['ADMIN', 'EDITOR'].includes(userRole)) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    // Check if user has permission to view documents
+    const permissions = getSimplePermissions(session.user.role);
+    if (!permissions.canView) {
+      return NextResponse.json({ error: 'You do not have permission to view documents' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);
@@ -97,15 +99,29 @@ export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     
+    console.log("=== SESSION DEBUG ===");
+    console.log("Full session:", JSON.stringify(session, null, 2));
+    console.log("Session user:", session?.user);
+    console.log("Session user id:", session?.user?.id);
+    console.log("Session user email:", session?.user?.email);
+    console.log("Session user role:", session?.user?.role);
+    console.log("=== END SESSION DEBUG ===");
+    
     if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'No session found' }, { status: 401 });
     }
 
-    // Check if user has permission to upload documents (ADMIN or EDITOR)
-    const userRole = session.user.role;
-    if (!['ADMIN', 'EDITOR'].includes(userRole)) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    if (!session.user.id) {
+      return NextResponse.json({ error: 'No user ID in session' }, { status: 401 });
     }
+
+    // Check if user has permission to upload documents
+    const permissions = getSimplePermissions(session.user.role);
+    if (!permissions.canEdit) {
+      return NextResponse.json({ error: 'You do not have permission to upload documents' }, { status: 403 });
+    }
+
+    console.log("User ID for document creation:", session.user.id);
 
     const body = await request.json();
     const {
@@ -128,49 +144,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file type - Only PDF, DOC/DOCX, XLSX, ZIP allowed
-    const allowedTypes = ['pdf', 'doc', 'docx', 'xlsx', 'zip'];
+    // Validate file type - Allow more file types
+    const allowedTypes = ['pdf', 'doc', 'docx', 'xlsx', 'zip', 'txt', 'jpg', 'jpeg', 'png'];
 
     if (!allowedTypes.includes(fileType.toLowerCase())) {
       return NextResponse.json(
-        { error: 'File type not supported. Only PDF, DOC, DOCX, XLSX, and ZIP files are allowed.' },
+        { error: 'File type not supported. Only PDF, DOC, DOCX, XLSX, ZIP, TXT, and Image files are allowed.' },
         { status: 400 }
       );
     }
 
-    // Create document
-    const document = await prisma.document.create({
-      data: {
-        fileName,
-        fileType: fileType.toLowerCase(),
-        mimeType,
-        fileSize,
-        fileContent,
-        customerName,
-        uploadedDate: new Date(uploadedDate),
-        description: description || null,
-        tags: tags || [],
-        uploadedBy: session.user.id,
-      },
-      include: {
-        uploader: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
+    // Create document with minimal fields first
+    console.log("Creating document with user ID:", session.user.id);
+    console.log("Session user object:", session.user);
+    
+    try {
+      const document = await prisma.document.create({
+        data: {
+          fileName,
+          fileType: fileType.toLowerCase(),
+          mimeType,
+          fileSize,
+          fileContent,
+          customerName,
+          uploadedDate: new Date(uploadedDate),
+          uploadedBy: session.user.id,
+        }
+      });
+      
+      console.log("Document created successfully:", document.id);
+      
+      // Return basic response
+      return NextResponse.json({
+        message: 'Document uploaded successfully',
+        document: {
+          id: document.id,
+          fileName: document.fileName,
+          customerName: document.customerName,
+          workflowStatus: document.workflowStatus,
         },
-      },
-    });
-
-    // Return document without file content
-    const { fileContent: _, ...documentResponse } = document;
-
-    return NextResponse.json({
-      message: 'Document uploaded successfully',
-      document: documentResponse,
-    }, { status: 201 });
+      }, { status: 201 });
+      
+    } catch (createError) {
+      console.error("Document creation error:", createError);
+      throw createError;
+    }
   } catch (error) {
     console.error('Error uploading document:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

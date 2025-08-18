@@ -1,3 +1,5 @@
+import { WorkflowStatus, DocumentVersion } from './workflow';
+
 export interface Document {
   id: string;
   fileName: string;
@@ -8,6 +10,7 @@ export interface Document {
   customerName: string;
   uploadedDate: string;
   status: DocumentStatus;
+  workflowStatus: WorkflowStatus;
   description?: string;
   tags: string[];
   createdAt: string;
@@ -19,6 +22,7 @@ export interface Document {
     lastName: string;
     email: string;
   };
+  versions?: DocumentVersion[];
 }
 
 export enum DocumentStatus {
@@ -47,6 +51,10 @@ export interface DocumentStats {
     };
     uploadCount: number;
   }>;
+  // Workflow stats
+  workflowStatusBreakdown: Record<WorkflowStatus, number>;
+  averageProcessingTime: number;
+  pendingApprovals: number;
 }
 
 export interface DocumentFilters {
@@ -54,6 +62,7 @@ export interface DocumentFilters {
   fileType?: string;
   customerName?: string;
   status?: DocumentStatus;
+  workflowStatus?: WorkflowStatus;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
 }

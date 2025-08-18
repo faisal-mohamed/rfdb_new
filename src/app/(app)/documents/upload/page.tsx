@@ -3,8 +3,8 @@
 import { useState, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { validateFile, fileToBase64, formatFileSize, getFileIcon } from "@/lib/file-utils";
-import { canUploadDocuments, mapPrismaRoleToRole } from "@/lib/permissions";
+import { getSimplePermissions } from "@/lib/simplePermissions";
+import { getFileIcon } from "@/lib/file-utils";
 
 export default function DocumentUploadPage() {
   const { data: session } = useSession();
@@ -19,14 +19,14 @@ export default function DocumentUploadPage() {
     tags: "",
   });
   const [isUploading, setIsUploading] = useState(false);
+  const [isGeneratingV1, setIsGeneratingV1] = useState(false);
   const [error, setError] = useState("");
   const [dragActive, setDragActive] = useState(false);
 
   // Check permissions
-  const userRole = session?.user?.role ? mapPrismaRoleToRole(session.user.role) : 'viewer';
-  const canUpload = canUploadDocuments(userRole);
+  const permissions = getSimplePermissions(session?.user?.role || 'VIEWER');
 
-  if (!canUpload) {
+  if (!permissions.canEdit) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -40,6 +40,50 @@ export default function DocumentUploadPage() {
     );
   }
 
+  const validateFile = (file: File) => {
+    const maxSize = 50 * 1024 * 1024; // 50MB
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'image/jpeg',
+      'image/png'
+    ];
+
+    if (file.size > maxSize) {
+      return { isValid: false, error: 'File size must be less than 50MB' };
+    }
+
+    if (!allowedTypes.includes(file.type)) {
+      return { isValid: false, error: 'File type not supported. Please upload PDF, Word, Text, or Image files.' };
+    }
+
+    return { isValid: true };
+  };
+
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const result = reader.result as string;
+        // Remove the data URL prefix (e.g., "data:application/pdf;base64,")
+        const base64 = result.split(',')[1];
+        resolve(base64);
+      };
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
   const handleFileSelect = (file: File) => {
     const validation = validateFile(file);
     if (!validation.isValid) {
@@ -49,13 +93,6 @@ export default function DocumentUploadPage() {
 
     setSelectedFile(file);
     setError("");
-  };
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileSelect(file);
-    }
   };
 
   const handleDrag = (e: React.DragEvent) => {
@@ -73,9 +110,8 @@ export default function DocumentUploadPage() {
     e.stopPropagation();
     setDragActive(false);
 
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      handleFileSelect(file);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      handleFileSelect(e.dataTransfer.files[0]);
     }
   };
 
@@ -85,6 +121,39 @@ export default function DocumentUploadPage() {
       ...prev,
       [name]: value
     }));
+  };
+
+  const generateV1AfterUpload = async (documentId: string) => {
+    setIsGeneratingV1(true);
+    try {
+      const response = await fetch('/api/workflow', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'process_v1',
+          documentId,
+        }),
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // Redirect to V1 page to show the generated content
+        router.push(`/documents/${documentId}/v1`);
+      } else {
+        console.error('Failed to generate V1:', result.error);
+        // Still redirect to documents list even if V1 generation fails
+        router.push('/documents');
+      }
+    } catch (error) {
+      console.error('Error generating V1:', error);
+      // Still redirect to documents list even if V1 generation fails
+      router.push('/documents');
+    } finally {
+      setIsGeneratingV1(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -100,17 +169,12 @@ export default function DocumentUploadPage() {
       return;
     }
 
-    if (!formData.uploadedDate) {
-      setError("Upload date is required");
-      return;
-    }
-
     setIsUploading(true);
     setError("");
 
     try {
       // Convert file to base64
-      const fileContent = await fileToBase64(selectedFile);
+      const base64Content = await fileToBase64(selectedFile);
       
       // Prepare upload data
       const uploadData = {
@@ -118,13 +182,14 @@ export default function DocumentUploadPage() {
         fileType: selectedFile.name.split('.').pop()?.toLowerCase() || '',
         mimeType: selectedFile.type,
         fileSize: selectedFile.size,
-        fileContent,
+        fileContent: base64Content,
         customerName: formData.customerName.trim(),
         uploadedDate: formData.uploadedDate,
         description: formData.description.trim() || undefined,
-        tags: formData.tags.trim() ? formData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : [],
+        tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
       };
 
+      // Upload document
       const response = await fetch('/api/documents', {
         method: 'POST',
         headers: {
@@ -133,19 +198,301 @@ export default function DocumentUploadPage() {
         body: JSON.stringify(uploadData),
       });
 
-      if (response.ok) {
-        router.push('/documents?uploaded=true');
+      const result = await response.json();
+
+      console.log("result", result);
+
+      if (response.ok && result.document) {
+        // Auto-generate V1 after successful upload
+        await generateV1AfterUpload(result.document.id);
       } else {
-        const errorData = await response.json();
-        setError(errorData.error || 'Failed to upload document');
+        setError(result.error || 'Upload failed');
       }
     } catch (error) {
       console.error('Upload error:', error);
-      setError('Failed to upload document. Please try again.');
+      setError('An error occurred during upload');
     } finally {
       setIsUploading(false);
     }
   };
+
+//   return (
+//     <div className="min-h-screen bg-gray-50 py-8">
+//       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+//         {/* Header */}
+//         <div className="mb-8">
+//           <h1 className="text-3xl font-bold text-gray-900">Upload Document</h1>
+//           <p className="mt-2 text-gray-600">
+//             Upload a document to start the RFP processing workflow. Version 1 will be automatically generated.
+//           </p>
+//         </div>
+
+//         {/* Upload Form */}
+//         <form onSubmit={handleSubmit} className="space-y-6">
+//           {/* File Upload Area */}
+//           <div className="bg-white rounded-lg shadow-sm border p-6">
+//             <label className="block text-sm font-medium text-gray-700 mb-4">
+//               Document File *
+//             </label>
+            
+//             <div
+//               className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+//                 dragActive 
+//                   ? 'border-blue-400 bg-blue-50' 
+//                   : 'border-gray-300 hover:border-gray-400'
+//               }`}
+//               onDragEnter={handleDrag}
+//               onDragLeave={handleDrag}
+//               onDragOver={handleDrag}
+//               onDrop={handleDrop}
+//             >
+//               {selectedFile ? (
+//                 <div className="space-y-2">
+//                   <svg className="mx-auto h-12 w-12 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+//                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+//                   </svg>
+//                   <p className="text-sm font-medium text-gray-900">{selectedFile.name}</p>
+//                   <p className="text-sm text-gray-500">{formatFileSize(selectedFile.size)}</p>
+//                   <button
+//                     type="button"
+//                     onClick={() => setSelectedFile(null)}
+//                     className="text-sm text-red-600 hover:text-red-800"
+//                   >
+//                     Remove file
+//                   </button>
+//                 </div>
+//               ) : (
+//                 <div className="space-y-2">
+//                   <svg className="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
+//                     <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+//                   </svg>
+//                   <div>
+//                     <button
+//                       type="button"
+//                       onClick={() => fileInputRef.current?.click()}
+//                       className="text-blue-600 hover:text-blue-800 font-medium"
+//                     >
+//                       Click to upload
+//                     </button>
+//                     <span className="text-gray-500"> or drag and drop</span>
+//                   </div>
+//                   <p className="text-xs text-gray-500">
+//                     PDF, Word, Text, or Image files up to 50MB
+//                   </p>
+//                 </div>
+//               )}
+//             </div>
+
+//             <input
+//               ref={fileInputRef}
+//               type="file"
+//               className="hidden"
+//               accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
+//               onChange={(e) => {
+//                 if (e.target.files && e.target.files[0]) {
+//                   handleFileSelect(e.target.files[0]);
+//                 }
+//               }}
+//             />
+//           </div>
+
+//           {/* Form Fields */}
+//           <div className="bg-white rounded-lg shadow-sm border p-6 space-y-4">
+//             <div>
+//               <label htmlFor="customerName" className="block text-sm font-medium text-gray-700 mb-1">
+//                 Customer Name *
+//               </label>
+//               <input
+//                 type="text"
+//                 id="customerName"
+//                 name="customerName"
+//                 value={formData.customerName}
+//                 onChange={handleInputChange}
+//                 required
+//                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+//                 placeholder="Enter customer name"
+//               />
+//             </div>
+
+//             <div>
+//               <label htmlFor="uploadedDate" className="block text-sm font-medium text-gray-700 mb-1">
+//                 Upload Date
+//               </label>
+//               <input
+//                 type="date"
+//                 id="uploadedDate"
+//                 name="uploadedDate"
+//                 value={formData.uploadedDate}
+//                 onChange={handleInputChange}
+//                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+//               />
+//             </div>
+
+//             <div>
+//               <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+//                 Description
+//               </label>
+//               <textarea
+//                 id="description"
+//                 name="description"
+//                 value={formData.description}
+//                 onChange={handleInputChange}
+//                 rows={3}
+//                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+//                 placeholder="Optional description"
+//               />
+//             </div>
+
+//             <div>
+//               <label htmlFor="tags" className="block text-sm font-medium text-gray-700 mb-1">
+//                 Tags
+//               </label>
+//               <input
+//                 type="text"
+//                 id="tags"
+//                 name="tags"
+//                 value={formData.tags}
+//                 onChange={handleInputChange}
+//                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+//                 placeholder="Enter tags separated by commas"
+//               />
+//             </div>
+//           </div>
+
+//           {/* Error Message */}
+//           {error && (
+//             <div className="bg-red-50 border border-red-200 rounded-md p-4">
+//               <div className="flex">
+//                 <svg className="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+//                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+//                 </svg>
+//                 <div className="ml-3">
+//                   <p className="text-sm text-red-800">{error}</p>
+//                 </div>
+//               </div>
+//             </div>
+//           )}
+
+//           {/* Submit Button */}
+//           <div className="flex justify-end space-x-3">
+//             <button
+//               type="button"
+//               onClick={() => router.push('/documents')}
+//               className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+//             >
+//               Cancel
+//             </button>
+//             <button
+//               type="submit"
+//               disabled={isUploading || isGeneratingV1}
+//               className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+//             >
+//               {isUploading ? 'Uploading...' : isGeneratingV1 ? 'Generating V1...' : 'Upload & Generate V1'}
+//             </button>
+//           </div>
+//         </form>
+//       </div>
+//     </div>
+//   );
+// }
+//     setError("");
+//   };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleFileSelect(file);
+    }
+  };
+
+  // const handleDrag = (e: React.DragEvent) => {
+  //   e.preventDefault();
+  //   e.stopPropagation();
+  //   if (e.type === "dragenter" || e.type === "dragover") {
+  //     setDragActive(true);
+  //   } else if (e.type === "dragleave") {
+  //     setDragActive(false);
+  //   }
+  // };
+
+  // const handleDrop = (e: React.DragEvent) => {
+  //   e.preventDefault();
+  //   e.stopPropagation();
+  //   setDragActive(false);
+
+  //   const file = e.dataTransfer.files?.[0];
+  //   if (file) {
+  //     handleFileSelect(file);
+  //   }
+  // };
+
+  // const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  //   const { name, value } = e.target;
+  //   setFormData(prev => ({
+  //     ...prev,
+  //     [name]: value
+  //   }));
+  // };
+
+  // const handleSubmit = async (e: React.FormEvent) => {
+  //   e.preventDefault();
+    
+  //   if (!selectedFile) {
+  //     setError("Please select a file to upload");
+  //     return;
+  //   }
+
+  //   if (!formData.customerName.trim()) {
+  //     setError("Customer name is required");
+  //     return;
+  //   }
+
+  //   if (!formData.uploadedDate) {
+  //     setError("Upload date is required");
+  //     return;
+  //   }
+
+  //   setIsUploading(true);
+  //   setError("");
+
+  //   try {
+  //     // Convert file to base64
+  //     const fileContent = await fileToBase64(selectedFile);
+      
+  //     // Prepare upload data
+  //     const uploadData = {
+  //       fileName: selectedFile.name,
+  //       fileType: selectedFile.name.split('.').pop()?.toLowerCase() || '',
+  //       mimeType: selectedFile.type,
+  //       fileSize: selectedFile.size,
+  //       fileContent,
+  //       customerName: formData.customerName.trim(),
+  //       uploadedDate: formData.uploadedDate,
+  //       description: formData.description.trim() || undefined,
+  //       tags: formData.tags.trim() ? formData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : [],
+  //     };
+
+  //     const response = await fetch('/api/documents', {
+  //       method: 'POST',
+  //       headers: {
+  //         'Content-Type': 'application/json',
+  //       },
+  //       body: JSON.stringify(uploadData),
+  //     });
+
+  //     if (response.ok) {
+  //       router.push('/documents?uploaded=true');
+  //     } else {
+  //       const errorData = await response.json();
+  //       setError(errorData.error || 'Failed to upload document');
+  //     }
+  //   } catch (error) {
+  //     console.error('Upload error:', error);
+  //     setError('Failed to upload document. Please try again.');
+  //   } finally {
+  //     setIsUploading(false);
+  //   }
+  // };
 
   const removeFile = () => {
     setSelectedFile(null);
