@@ -13,40 +13,19 @@ export interface FileInfo {
   mimeType: string;
 }
 
-// Allowed file types and their MIME types
+// Allowed file types and their MIME types - Updated to support only PDF, DOC/DOCX, XLSX, ZIP
 export const ALLOWED_FILE_TYPES = {
   // Documents
   pdf: ['application/pdf'],
   doc: ['application/msword'],
   docx: ['application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
-  txt: ['text/plain'],
-  rtf: ['application/rtf', 'text/rtf'],
-  
-  // Images
-  png: ['image/png'],
-  jpg: ['image/jpeg'],
-  jpeg: ['image/jpeg'],
-  gif: ['image/gif'],
-  bmp: ['image/bmp'],
-  svg: ['image/svg+xml'],
   
   // Spreadsheets
-  xls: ['application/vnd.ms-excel'],
   xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-  csv: ['text/csv'],
-  
-  // Presentations
-  ppt: ['application/vnd.ms-powerpoint'],
-  pptx: ['application/vnd.openxmlformats-officedocument.presentationml.presentation'],
   
   // Archives
   zip: ['application/zip'],
-  rar: ['application/x-rar-compressed'],
-  '7z': ['application/x-7z-compressed'],
 };
-
-// Maximum file size (10MB)
-export const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 /**
  * Extract file information from a File object
@@ -64,18 +43,10 @@ export function getFileInfo(file: File): FileInfo {
 }
 
 /**
- * Validate file type and size
+ * Validate file type
  */
 export function validateFile(file: File): FileValidationResult {
   const fileInfo = getFileInfo(file);
-  
-  // Check file size
-  if (file.size > MAX_FILE_SIZE) {
-    return {
-      isValid: false,
-      error: `File size exceeds ${formatFileSize(MAX_FILE_SIZE)} limit`,
-    };
-  }
   
   // Check if file has extension
   if (!fileInfo.extension) {
@@ -90,7 +61,7 @@ export function validateFile(file: File): FileValidationResult {
   if (!allowedMimeTypes) {
     return {
       isValid: false,
-      error: `File type .${fileInfo.extension} is not allowed`,
+      error: `File type .${fileInfo.extension} is not supported. Only PDF, DOC, DOCX, XLSX, and ZIP files are allowed.`,
     };
   }
   
@@ -149,27 +120,23 @@ export function formatFileSize(bytes: number): string {
 export function getFileTypeCategory(extension: string): string {
   const ext = extension.toLowerCase();
   
-  if (['pdf', 'doc', 'docx', 'txt', 'rtf'].includes(ext)) {
-    return 'Document';
+  if (['pdf'].includes(ext)) {
+    return 'PDF Document';
   }
   
-  if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg'].includes(ext)) {
-    return 'Image';
+  if (['doc', 'docx'].includes(ext)) {
+    return 'Word Document';
   }
   
-  if (['xls', 'xlsx', 'csv'].includes(ext)) {
-    return 'Spreadsheet';
+  if (['xlsx'].includes(ext)) {
+    return 'Excel Spreadsheet';
   }
   
-  if (['ppt', 'pptx'].includes(ext)) {
-    return 'Presentation';
+  if (['zip'].includes(ext)) {
+    return 'ZIP Archive';
   }
   
-  if (['zip', 'rar', '7z'].includes(ext)) {
-    return 'Archive';
-  }
-  
-  return 'Other';
+  return 'Document';
 }
 
 /**
@@ -184,26 +151,9 @@ export function getFileIcon(extension: string): string {
     case 'doc':
     case 'docx':
       return '📝';
-    case 'txt':
-      return '📃';
-    case 'png':
-    case 'jpg':
-    case 'jpeg':
-    case 'gif':
-    case 'bmp':
-      return '🖼️';
-    case 'svg':
-      return '🎨';
-    case 'xls':
     case 'xlsx':
-    case 'csv':
       return '📊';
-    case 'ppt':
-    case 'pptx':
-      return '📽️';
     case 'zip':
-    case 'rar':
-    case '7z':
       return '🗜️';
     default:
       return '📁';

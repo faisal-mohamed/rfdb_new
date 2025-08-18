@@ -1,4 +1,4 @@
-import { UserRole } from "../generated/prisma";
+import { UserRole } from "@prisma/client";
 
 // Future RBAC implementation
 // This is a template structure for when you're ready to implement RBAC
@@ -56,12 +56,12 @@ export function usePermissions() {
 }
 
 // Higher-order component for route protection (template)
-export function withAuth<T extends object>(
-  Component: React.ComponentType<T>,
-  requiredPermissions?: Permission[]
-) {
-  return function AuthenticatedComponent(props: T) {
-    // TODO: Implement authentication and permission checking
-    return <Component {...props} />;
-  };
-}
+// export function withAuth<T extends object>(
+//   Component: React.ComponentType<T>,
+//   requiredPermissions?: Permission[]
+// ) {
+//   return function AuthenticatedComponent(props: T) {
+//     // TODO: Implement authentication and permission checking
+//     return <Component {...props} />;
+//   };
+// }

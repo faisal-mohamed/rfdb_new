@@ -128,27 +128,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    if (fileSize > maxSize) {
-      return NextResponse.json(
-        { error: 'File size exceeds 10MB limit' },
-        { status: 400 }
-      );
-    }
-
-    // Validate file type
-    const allowedTypes = [
-      'pdf', 'doc', 'docx', 'txt', 'rtf', // Documents
-      'png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg', // Images
-      'xls', 'xlsx', 'csv', // Spreadsheets
-      'ppt', 'pptx', // Presentations
-      'zip', 'rar', '7z', // Archives
-    ];
+    // Validate file type - Only PDF, DOC/DOCX, XLSX, ZIP allowed
+    const allowedTypes = ['pdf', 'doc', 'docx', 'xlsx', 'zip'];
 
     if (!allowedTypes.includes(fileType.toLowerCase())) {
       return NextResponse.json(
-        { error: 'File type not allowed' },
+        { error: 'File type not supported. Only PDF, DOC, DOCX, XLSX, and ZIP files are allowed.' },
         { status: 400 }
       );
     }

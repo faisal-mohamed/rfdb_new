@@ -1,4 +1,4 @@
-import { UserRole, UserType } from "../generated/prisma";
+import { UserRole, UserType } from "@prisma/client";
 
 // Simple role checking utilities for Next-Auth sessions
 export function isAdmin(role: UserRole): boolean {

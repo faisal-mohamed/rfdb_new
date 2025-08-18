@@ -307,13 +307,10 @@ export default function DocumentsPage() {
           >
             <option value="">All File Types</option>
             <option value="pdf">PDF</option>
-            <option value="doc">Word Document</option>
-            <option value="docx">Word Document</option>
-            <option value="png">PNG Image</option>
-            <option value="jpg">JPG Image</option>
-            <option value="jpeg">JPEG Image</option>
-            <option value="xls">Excel</option>
-            <option value="xlsx">Excel</option>
+            <option value="doc">Word Document (DOC)</option>
+            <option value="docx">Word Document (DOCX)</option>
+            <option value="xlsx">Excel Spreadsheet</option>
+            <option value="zip">ZIP Archive</option>
           </select>
 
           {/* Customer Filter */}

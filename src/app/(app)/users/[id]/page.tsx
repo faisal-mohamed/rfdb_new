@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { UserRole } from "@/generated/prisma";
+import { UserRole } from "@prisma/client";
 
 interface User {
   id: string;

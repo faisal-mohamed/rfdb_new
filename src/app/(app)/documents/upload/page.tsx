@@ -210,7 +210,7 @@ export default function DocumentUploadPage() {
                   type="file"
                   onChange={handleFileInputChange}
                   className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                  accept=".pdf,.doc,.docx,.txt,.rtf,.png,.jpg,.jpeg,.gif,.bmp,.svg,.xls,.xlsx,.csv,.ppt,.pptx,.zip,.rar,.7z"
+                  accept=".pdf,.doc,.docx,.xlsx,.zip"
                 />
                 
                 <div className="space-y-4">
@@ -225,7 +225,7 @@ export default function DocumentUploadPage() {
                       Drop your file here, or <span className="text-blue-600">browse</span>
                     </p>
                     <p className="text-sm text-slate-500 mt-2">
-                      Supports: PDF, Word, Images, Excel, PowerPoint, Archives (Max 10MB)
+                      Supports: PDF, Word Documents (DOC/DOCX), Excel (XLSX), ZIP Archives
                     </p>
                   </div>
                 </div>
