@@ -24,13 +24,40 @@ export enum VersionStatus {
   APPROVED = 'APPROVED'
 }
 
+// Dynamic RFP tree types for V1/V2 JSONs
+export type RfpLeaf = { extracted_data: string; pages: number[] };
+export type RfpNode = { [section: string]: RfpNode | RfpLeaf };
+
+export function isRfpLeaf(node: unknown): node is RfpLeaf {
+  return !!node && typeof node === 'object'
+    && 'extracted_data' in (node as any)
+    && 'pages' in (node as any)
+    && typeof (node as any).extracted_data === 'string'
+    && Array.isArray((node as any).pages)
+    && (node as any).pages.every((p: any) => Number.isInteger(p));
+}
+
+export function validateRfpTree(tree: unknown): { isValid: boolean; errors: string[] } {
+  const errors: string[] = [];
+  function walk(node: any, path: string[]) {
+    if (isRfpLeaf(node)) return;
+    if (typeof node !== 'object' || node === null || Array.isArray(node)) {
+      errors.push(`${path.join(' > ') || 'root'} must be an object`);
+      return;
+    }
+    for (const [key, child] of Object.entries(node)) walk(child, [...path, key]);
+  }
+  walk(tree, []);
+  return { isValid: errors.length === 0, errors };
+}
+
 export interface DocumentVersion {
   id: string;
   documentId: string;
   versionType: VersionType;
   versionNumber: number;
   status: VersionStatus;
-  jsonContent: any; // The actual JSON data from API or edited
+  jsonContent: any; // V1/V2 RFP tree (RfpNode)
   externalApiRequestId?: string;
   externalApiResponse?: any;
   editedBy?: string;

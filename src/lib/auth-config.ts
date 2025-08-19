@@ -23,7 +23,8 @@ export const authOptions: NextAuthOptions = {
         }
 
         try {
-          const user = await prisma.user.findUnique({
+          // Use findFirst to include non-unique filters like isActive
+          const user = await prisma.user.findFirst({
             where: { 
               email: credentials.email.toLowerCase(),
               isActive: true 

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import JsonEditor from '@/components/JsonEditor';
+import { useToast } from '@/components/ui/Toast';
 import WorkflowStatusBadge from '@/components/WorkflowStatusBadge';
 import { DocumentWithWorkflow, VersionType, WorkflowStatus } from '@/types/workflow';
 import { getSimplePermissions } from '@/lib/simplePermissions';
@@ -18,6 +19,7 @@ export default function DocumentV2Page() {
   const [processing, setProcessing] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [v2Data, setV2Data] = useState<any>(null);
+  const { showToast } = useToast();
 
   const documentId = params.id as string;
   const generateNew = searchParams.get('generateNew') === 'true';
@@ -77,13 +79,12 @@ export default function DocumentV2Page() {
       
       if (result.success) {
         await fetchDocument(); // Refresh to get the new V2 data
-        alert('Version 2 generated successfully!');
       } else {
-        alert(`Error: ${result.error}`);
+        showToast({ variant: 'error', message: result.error || 'Failed to generate V2' });
       }
     } catch (error) {
       console.error('Generate V2 error:', error);
-      alert('An error occurred while generating Version 2');
+      showToast({ variant: 'error', message: 'An error occurred while generating Version 2' });
     } finally {
       setProcessing(false);
     }
@@ -115,14 +116,14 @@ export default function DocumentV2Page() {
       if (result.success) {
         setV2Data(updatedData);
         setHasChanges(false);
-        alert('Version 2 saved successfully!');
+        showToast({ variant: 'success', message: 'Version 2 saved successfully!' });
         await fetchDocument(); // Refresh document data
       } else {
-        alert(`Error: ${result.error}`);
+        showToast({ variant: 'error', message: result.error || 'Failed to save Version 2' });
       }
     } catch (error) {
       console.error('Save V2 error:', error);
-      alert('An error occurred while saving Version 2');
+      showToast({ variant: 'error', message: 'An error occurred while saving Version 2' });
     } finally {
       setProcessing(false);
     }
@@ -151,14 +152,14 @@ export default function DocumentV2Page() {
       const result = await response.json();
       
       if (result.success) {
-        alert('Version 2 submitted for approval!');
+        showToast({ variant: 'success', message: 'Version 2 submitted for approval!' });
         await fetchDocument(); // Refresh document data
       } else {
-        alert(`Error: ${result.error}`);
+        showToast({ variant: 'error', message: result.error || 'Failed to submit for approval' });
       }
     } catch (error) {
       console.error('Request approval error:', error);
-      alert('An error occurred while requesting approval');
+      showToast({ variant: 'error', message: 'An error occurred while requesting approval' });
     } finally {
       setProcessing(false);
     }

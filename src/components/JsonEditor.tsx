@@ -1,14 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { MockRFPSummary } from '@/types/workflow';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { RfpNode, RfpLeaf } from '@/types/workflow';
 
 interface JsonEditorProps {
-  initialData: MockRFPSummary;
-  onSave: (data: MockRFPSummary) => void;
+  initialData: RfpNode;
+  onSave: (data: RfpNode) => void;
   onCancel: () => void;
   isReadOnly?: boolean;
   className?: string;
+  saveLabel?: string;
+  disableWhenUnchanged?: boolean;
+}
+
+function isLeaf(node: any): node is RfpLeaf {
+  return node && typeof node === 'object' && 'extracted_data' in node && 'pages' in node;
 }
 
 export default function JsonEditor({ 
@@ -16,88 +22,133 @@ export default function JsonEditor({
   onSave, 
   onCancel, 
   isReadOnly = false, 
-  className = '' 
+  className = '',
+  saveLabel = 'Save Changes',
+  disableWhenUnchanged = true
 }: JsonEditorProps) {
-  const [data, setData] = useState<MockRFPSummary>(initialData);
-  const [activeTab, setActiveTab] = useState('document');
+  const [data, setData] = useState<RfpNode>(initialData);
   const [hasChanges, setHasChanges] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [orderMap, setOrderMap] = useState<Record<string, string[]>>({});
+
+  // Build a stable, collision-safe path key
+  const toKey = useCallback((path: string[]) => path.map(seg => encodeURIComponent(seg)).join('|'), []);
 
   useEffect(() => {
     setHasChanges(JSON.stringify(data) !== JSON.stringify(initialData));
   }, [data, initialData]);
+
+  // Capture the exact original key order of every node so UI always follows API order
+  useEffect(() => {
+    const map: Record<string, string[]> = {};
+    const walk = (node: RfpNode | RfpLeaf, path: string[]) => {
+      if (isLeaf(node)) return;
+      const key = toKey(path);
+      map[key] = Object.keys(node as RfpNode);
+      for (const k of map[key]) {
+        walk((node as RfpNode)[k] as any, [...path, k]);
+      }
+    };
+    walk(initialData, []);
+    setOrderMap(map);
+  }, [initialData, toKey]);
 
   const handleSave = () => {
     onSave(data);
     setHasChanges(false);
   };
 
-  const updateDocumentInfo = (field: string, value: string) => {
-    setData(prev => ({
-      ...prev,
-      documentInfo: {
-        ...prev.documentInfo,
-        [field]: value
+  // Immutable update only along the edited path
+  const updateExtractedData = useCallback((path: string[], value: string) => {
+    const updateRecursive = (node: RfpNode | RfpLeaf, depth: number): RfpNode | RfpLeaf => {
+      if (isLeaf(node) && depth === path.length) {
+        return { ...node, extracted_data: value };
       }
-    }));
+      const keyAtDepth = path[depth];
+      const child = (node as RfpNode)[keyAtDepth] as any;
+      if (child === undefined) return node;
+      const updatedChild = updateRecursive(child, depth + 1) as any;
+      if (updatedChild === child) return node;
+      // Rebuild object preserving original key order
+      const keys = Object.keys(node as RfpNode);
+      const result: any = {};
+      for (const k of keys) {
+        result[k] = k === keyAtDepth ? updatedChild : (node as any)[k];
+      }
+      return result as RfpNode;
+    };
+    setData(prev => updateRecursive(prev, 0) as RfpNode);
+  }, []);
+
+  const toggleExpand = (path: string[]) => {
+    const key = toKey(path);
+    setExpanded(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const updateRequirements = (type: 'technical' | 'functional' | 'compliance', requirements: string[]) => {
-    setData(prev => ({
-      ...prev,
-      requirements: {
-        ...prev.requirements,
-        [type]: requirements
-      }
-    }));
+  const isExpanded = (path: string[]) => {
+    const key = toKey(path);
+    return expanded[key] ?? true; // default expanded
   };
 
-  const updateEvaluation = (field: string, value: any) => {
-    setData(prev => ({
-      ...prev,
-      evaluation: {
-        ...prev.evaluation,
-        [field]: value
-      }
-    }));
-  };
+  const LeafEditor = React.memo(function LeafEditor({ leaf, path }: { leaf: RfpLeaf; path: string[] }) {
+    return (
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-700">Extracted Data</label>
+        <div className="relative">
+          <textarea
+            defaultValue={leaf.extracted_data}
+            onChange={(e) => updateExtractedData(path, e.target.value)}
+            disabled={isReadOnly}
+            rows={5}
+            placeholder="Type extracted summary here..."
+            className="w-full resize-y px-4 py-3 rounded-lg border border-gray-200 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
+          />
+        </div>
+        <div className="text-xs text-gray-500">Pages: {leaf.pages.join(', ') || '-'}</div>
+      </div>
+    );
+  });
 
-  const updateBudget = (field: string, value: string) => {
-    setData(prev => ({
-      ...prev,
-      budget: {
-        ...prev.budget,
-        [field]: value
-      }
-    }));
-  };
-
-  const addRequirement = (type: 'technical' | 'functional' | 'compliance') => {
-    const newReq = prompt(`Enter new ${type} requirement:`);
-    if (newReq) {
-      updateRequirements(type, [...data.requirements[type], newReq]);
+  const SectionNode = React.memo(function SectionNode({ node, path = [] as string[] }: { node: RfpNode | RfpLeaf; path?: string[] }) {
+    if (isLeaf(node)) {
+      return <LeafEditor leaf={node} path={path} />;
     }
-  };
-
-  const removeRequirement = (type: 'technical' | 'functional' | 'compliance', index: number) => {
-    const updated = data.requirements[type].filter((_, i) => i !== index);
-    updateRequirements(type, updated);
-  };
-
-  const tabs = [
-    { id: 'document', label: 'Document Info' },
-    { id: 'requirements', label: 'Requirements' },
-    { id: 'evaluation', label: 'Evaluation' },
-    { id: 'timeline', label: 'Timeline' },
-    { id: 'budget', label: 'Budget' }
-  ];
+    const pathKey = toKey(path);
+    const keysInOrder = orderMap[pathKey] ?? Object.keys(node as RfpNode);
+    const entries = useMemo(() => keysInOrder.map(k => [k, (node as RfpNode)[k] as any] as const), [keysInOrder, node]);
+    return (
+      <div className="space-y-3">
+        {entries.map(([key, child]) => {
+          const childPath = [...path, key];
+          const open = isExpanded(childPath);
+          const childPathKey = toKey(childPath);
+          return (
+            <div key={childPathKey} className="border rounded-lg overflow-hidden">
+              <div
+                className="px-4 py-3 bg-gray-50 text-gray-800 font-medium flex items-center justify-between cursor-pointer hover:bg-gray-100"
+                onClick={() => toggleExpand(childPath)}
+              >
+                <span>{key}</span>
+                <span className="text-gray-500">{open ? '−' : '+'}</span>
+              </div>
+              {open && (
+                <div className="p-4 bg-white">
+                  <SectionNode node={child as any} path={childPath} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  });
 
   return (
     <div className={`bg-white rounded-lg shadow-sm border ${className}`}>
-      {/* Header */}
       <div className="border-b px-6 py-4">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-gray-900">
-            RFP Summary Editor
+            RFP JSON Editor
             {hasChanges && !isReadOnly && (
               <span className="ml-2 text-sm text-orange-600">(Unsaved changes)</span>
             )}
@@ -107,10 +158,10 @@ export default function JsonEditor({
               <>
                 <button
                   onClick={handleSave}
-                  disabled={!hasChanges}
+                  disabled={disableWhenUnchanged ? !hasChanges : false}
                   className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Save Changes
+                  {saveLabel}
                 </button>
                 <button
                   onClick={onCancel}
@@ -124,164 +175,8 @@ export default function JsonEditor({
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b">
-        <nav className="flex space-x-8 px-6">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Content */}
       <div className="p-6">
-        {activeTab === 'document' && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-              <input
-                type="text"
-                value={data.documentInfo.title}
-                onChange={(e) => updateDocumentInfo('title', e.target.value)}
-                disabled={isReadOnly}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-              <input
-                type="text"
-                value={data.documentInfo.type}
-                onChange={(e) => updateDocumentInfo('type', e.target.value)}
-                disabled={isReadOnly}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Submission Deadline</label>
-              <input
-                type="date"
-                value={data.documentInfo.submissionDeadline}
-                onChange={(e) => updateDocumentInfo('submissionDeadline', e.target.value)}
-                disabled={isReadOnly}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Contact Person</label>
-              <input
-                type="text"
-                value={data.documentInfo.contactPerson}
-                onChange={(e) => updateDocumentInfo('contactPerson', e.target.value)}
-                disabled={isReadOnly}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Organization</label>
-              <input
-                type="text"
-                value={data.documentInfo.organization}
-                onChange={(e) => updateDocumentInfo('organization', e.target.value)}
-                disabled={isReadOnly}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-              />
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'requirements' && (
-          <div className="space-y-6">
-            {(['technical', 'functional', 'compliance'] as const).map((type) => (
-              <div key={type}>
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-md font-medium text-gray-900 capitalize">{type} Requirements</h4>
-                  {!isReadOnly && (
-                    <button
-                      onClick={() => addRequirement(type)}
-                      className="text-sm text-blue-600 hover:text-blue-800"
-                    >
-                      + Add Requirement
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  {data.requirements[type].map((req, index) => (
-                    <div key={index} className="flex items-center space-x-2">
-                      <input
-                        type="text"
-                        value={req}
-                        onChange={(e) => {
-                          const updated = [...data.requirements[type]];
-                          updated[index] = e.target.value;
-                          updateRequirements(type, updated);
-                        }}
-                        disabled={isReadOnly}
-                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-                      />
-                      {!isReadOnly && (
-                        <button
-                          onClick={() => removeRequirement(type, index)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {activeTab === 'budget' && (
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Estimated Range</label>
-              <input
-                type="text"
-                value={data.budget.estimatedRange}
-                onChange={(e) => updateBudget('estimatedRange', e.target.value)}
-                disabled={isReadOnly}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Terms</label>
-              <textarea
-                value={data.budget.paymentTerms}
-                onChange={(e) => updateBudget('paymentTerms', e.target.value)}
-                disabled={isReadOnly}
-                rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Add other tabs content as needed */}
-        {activeTab === 'evaluation' && (
-          <div className="text-gray-500">
-            Evaluation criteria editor - Implementation pending
-          </div>
-        )}
-
-        {activeTab === 'timeline' && (
-          <div className="text-gray-500">
-            Timeline editor - Implementation pending
-          </div>
-        )}
+        <SectionNode node={data} path={[]} />
       </div>
     </div>
   );

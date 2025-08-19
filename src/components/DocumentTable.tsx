@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useToast } from '@/components/ui/Toast';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { Document } from '@/types/document';
@@ -15,6 +16,7 @@ interface DocumentTableProps {
 export default function DocumentTable({ documents, onRefresh }: DocumentTableProps) {
   const { data: session } = useSession();
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
+  const { showToast } = useToast();
 
   // Get user permissions
   const permissions = getSimplePermissions(session?.user?.role || 'VIEWER');
@@ -68,11 +70,11 @@ export default function DocumentTable({ documents, onRefresh }: DocumentTablePro
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
       } else {
-        alert('Failed to download document');
+        showToast({ variant: 'error', message: 'Failed to download document' });
       }
     } catch (error) {
       console.error('Download error:', error);
-      alert('Error downloading document');
+      showToast({ variant: 'error', message: 'Error downloading document' });
     }
   };
 

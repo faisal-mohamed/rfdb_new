@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useToast } from '@/components/ui/Toast';
 import { useParams, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import JsonEditor from '@/components/JsonEditor';
@@ -15,6 +16,7 @@ export default function DocumentApprovePage() {
   const [document, setDocument] = useState<DocumentWithWorkflow | null>(null);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const { showToast } = useToast();
 
   const documentId = params.id as string;
   const permissions = getSimplePermissions(session?.user?.role || 'VIEWER');
@@ -72,14 +74,14 @@ export default function DocumentApprovePage() {
       const result = await response.json();
       
       if (result.success) {
-        alert('Document approved successfully!');
+        showToast({ variant: 'success', message: 'Document approved successfully!' });
         await fetchDocument(); // Refresh document data
       } else {
-        alert(`Error: ${result.error}`);
+        showToast({ variant: 'error', message: result.error || 'Failed to approve document' });
       }
     } catch (error) {
       console.error('Approve document error:', error);
-      alert('An error occurred while approving the document');
+      showToast({ variant: 'error', message: 'An error occurred while approving the document' });
     } finally {
       setProcessing(false);
     }
@@ -108,14 +110,14 @@ export default function DocumentApprovePage() {
       const result = await response.json();
       
       if (result.success) {
-        alert('Word document generated successfully!');
+        showToast({ variant: 'success', message: 'Word document generated successfully!' });
         await fetchDocument(); // Refresh document data
       } else {
-        alert(`Error: ${result.error}`);
+        showToast({ variant: 'error', message: result.error || 'Failed to generate Word document' });
       }
     } catch (error) {
       console.error('Generate document error:', error);
-      alert('An error occurred while generating the Word document');
+      showToast({ variant: 'error', message: 'An error occurred while generating the Word document' });
     } finally {
       setProcessing(false);
     }

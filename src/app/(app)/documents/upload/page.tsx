@@ -128,29 +128,18 @@ export default function DocumentUploadPage() {
     try {
       const response = await fetch('/api/workflow', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'process_v1',
-          documentId,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'process_v1', documentId }),
       });
-
       const result = await response.json();
-      
-      if (result.success) {
-        // Redirect to V1 page to show the generated content
-        router.push(`/documents/${documentId}/v1`);
-      } else {
+      // Redirect to details page regardless; V1 generation runs in background
+      router.push(`/documents/${documentId}`);
+      if (!result.success) {
         console.error('Failed to generate V1:', result.error);
-        // Still redirect to documents list even if V1 generation fails
-        router.push('/documents');
       }
     } catch (error) {
       console.error('Error generating V1:', error);
-      // Still redirect to documents list even if V1 generation fails
-      router.push('/documents');
+      router.push(`/documents/${documentId}`);
     } finally {
       setIsGeneratingV1(false);
     }

@@ -1,8 +1,8 @@
-import { PrismaClient } from '@prisma/client';
-import { WorkflowStatus, VersionType, VersionStatus, WorkflowAction } from '@/types/workflow';
+import { prisma } from '@/lib/prisma';
+import { WorkflowStatus, VersionType, VersionStatus, WorkflowAction, validateRfpTree } from '@/types/workflow';
 import { MockExternalApiService } from './mockExternalApi';
 
-const prisma = new PrismaClient();
+// Use shared Prisma client to avoid multiple instances in dev
 
 export class WorkflowService {
   
@@ -36,19 +36,33 @@ export class WorkflowService {
         throw new Error(apiResponse.error || 'External API processing failed');
       }
 
-      // Create Version 1 record
-      const version = await prisma.documentVersion.create({
-        data: {
-          documentId,
-          versionType: VersionType.VERSION_1,
-          versionNumber: 1,
-          status: VersionStatus.GENERATED,
-          jsonContent: apiResponse.jsonData as any,
-          externalApiRequestId: apiResponse.requestId,
-          externalApiResponse: apiResponse as any,
-          createdBy: userId
-        }
+      // Upsert single Version 1 record (no additional versions)
+      const existingV1 = await prisma.documentVersion.findFirst({
+        where: { documentId, versionType: VersionType.VERSION_1 }
       });
+
+      const version = existingV1
+        ? await prisma.documentVersion.update({
+            where: { id: existingV1.id },
+            data: {
+              status: VersionStatus.GENERATED,
+              jsonContent: apiResponse.jsonData as any,
+              externalApiRequestId: apiResponse.requestId,
+              externalApiResponse: apiResponse as any,
+            }
+          })
+        : await prisma.documentVersion.create({
+            data: {
+              documentId,
+              versionType: VersionType.VERSION_1,
+              versionNumber: 1,
+              status: VersionStatus.GENERATED,
+              jsonContent: apiResponse.jsonData as any,
+              externalApiRequestId: apiResponse.requestId,
+              externalApiResponse: apiResponse as any,
+              createdBy: userId
+            }
+          });
 
       // Update document status
       await prisma.document.update({
@@ -88,6 +102,10 @@ export class WorkflowService {
 
   // Save Version 1 edits
   static async saveV1Edits(versionId: string, jsonContent: any, userId: string) {
+    const { isValid, errors } = validateRfpTree(jsonContent);
+    if (!isValid) {
+      throw new Error(`Invalid V1 JSON: ${errors.join(', ')}`);
+    }
     const version = await prisma.documentVersion.update({
       where: { id: versionId },
       data: {
@@ -155,19 +173,33 @@ export class WorkflowService {
         throw new Error(apiResponse.error || 'External API processing failed');
       }
 
-      // Create Version 2 record
-      const version = await prisma.documentVersion.create({
-        data: {
-          documentId,
-          versionType: VersionType.VERSION_2,
-          versionNumber: 1,
-          status: VersionStatus.GENERATED,
-          jsonContent: apiResponse.jsonData as any,
-          externalApiRequestId: apiResponse.requestId,
-          externalApiResponse: apiResponse as any,
-          createdBy: userId
-        }
+      // Upsert single Version 2 record (no additional versions)
+      const existingV2 = await prisma.documentVersion.findFirst({
+        where: { documentId, versionType: VersionType.VERSION_2 }
       });
+
+      const version = existingV2
+        ? await prisma.documentVersion.update({
+            where: { id: existingV2.id },
+            data: {
+              status: VersionStatus.GENERATED,
+              jsonContent: apiResponse.jsonData as any,
+              externalApiRequestId: apiResponse.requestId,
+              externalApiResponse: apiResponse as any,
+            }
+          })
+        : await prisma.documentVersion.create({
+            data: {
+              documentId,
+              versionType: VersionType.VERSION_2,
+              versionNumber: 1,
+              status: VersionStatus.GENERATED,
+              jsonContent: apiResponse.jsonData as any,
+              externalApiRequestId: apiResponse.requestId,
+              externalApiResponse: apiResponse as any,
+              createdBy: userId
+            }
+          });
 
       // Update document status
       await prisma.document.update({
@@ -207,6 +239,10 @@ export class WorkflowService {
 
   // Save Version 2 edits
   static async saveV2Edits(versionId: string, jsonContent: any, userId: string) {
+    const { isValid, errors } = validateRfpTree(jsonContent);
+    if (!isValid) {
+      throw new Error(`Invalid V2 JSON: ${errors.join(', ')}`);
+    }
     const version = await prisma.documentVersion.update({
       where: { id: versionId },
       data: {
