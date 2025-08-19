@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/prisma';
+import { renderRfpHtml } from '@/lib/pdf/renderRfpHtml';
+import { generatePdfBufferFromHtml } from '@/lib/pdf/generatePdf';
 import { WorkflowStatus, VersionType, VersionStatus, WorkflowAction, validateRfpTree } from '@/types/workflow';
 import { MockExternalApiService } from './mockExternalApi';
 
@@ -293,24 +295,39 @@ export class WorkflowService {
     return version;
   }
 
-  // Generate Word document (placeholder for now)
+  // Generate PDF document from V2 JSON using Playwright (returns buffer and filename)
   static async generateWordDocument(documentId: string, versionId: string, userId: string) {
-    // This will be implemented later with actual Word generation
-    const documentPath = `/generated/documents/${documentId}_${versionId}_${Date.now()}.docx`;
-    
-    const version = await prisma.documentVersion.update({
+    // Fetch the V2 version to render
+    const v2 = await prisma.documentVersion.findUnique({
       where: { id: versionId },
-      data: {
-        generatedDocumentPath: documentPath
-      }
+      include: { document: true }
+    });
+    if (!v2 || v2.versionType !== 'VERSION_2') {
+      throw new Error('V2 version not found');
+    }
+
+    const html = renderRfpHtml({
+      title: v2.document.fileName,
+      customerName: v2.document.customerName,
+      generatedAt: new Date(),
+      data: v2.jsonContent as any,
     });
 
+    const buffer = await generatePdfBufferFromHtml(html);
+    const safeName = v2.document.fileName.replace(/[^a-zA-Z0-9_.-]+/g, '_');
+    const fileName = `${safeName.replace(/\.[^.]+$/, '')}_v2.pdf`;
+
+    // Mark workflow as completed; do not store file on server
     await prisma.document.update({
       where: { id: documentId },
       data: { workflowStatus: WorkflowStatus.COMPLETED }
     });
+    await prisma.documentVersion.update({
+      where: { id: versionId },
+      data: { generatedDocumentPath: null }
+    });
 
-    return { version, documentPath };
+    return { fileName, buffer };
   }
 
   // Get document with all versions

@@ -84,8 +84,17 @@ export async function POST(request: NextRequest) {
         if (!permissions.canGenerate) {
           return NextResponse.json({ error: 'You do not have permission to generate documents' }, { status: 403 });
         }
-        result = await WorkflowService.generateWordDocument(documentId, versionId, userId);
-        break;
+        {
+          const { buffer, fileName } = await WorkflowService.generateWordDocument(documentId, versionId, userId);
+          return new NextResponse(buffer, {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/pdf',
+              'Content-Disposition': `attachment; filename="${fileName}"`,
+              'Cache-Control': 'no-store',
+            },
+          });
+        }
 
       default:
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

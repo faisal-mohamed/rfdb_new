@@ -244,6 +244,7 @@ export default function DocumentDetailsClient({ id }: Props) {
     try {
       const res = await fetch(`/api/workflow?documentId=${id}`);
       const json = await res.json();
+      console.log("json", json);
       if (json.success) setDoc(json.data);
     } finally {
       setLoading(false);
@@ -285,13 +286,21 @@ export default function DocumentDetailsClient({ id }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "generate_document", documentId: id, versionId: v2.id }),
       });
-      const json = await res.json();
-      if (json.success) {
-        await load();
-        showToast({ variant: "success", message: "Final document generated" });
-      } else {
-        showToast({ variant: "error", message: json.error || "Failed to generate document" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast({ variant: "error", message: err.error || "Failed to generate document" });
+        return;
       }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${doc.fileName.replace(/\.[^.]+$/, '')}_v2.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      showToast({ variant: "success", message: "PDF downloaded" });
     } finally {
       setProcessing(false);
     }
