@@ -7,6 +7,15 @@ import { Document, DocumentStats, DocumentFilters, DocumentStatus } from "@/type
 import { canViewDocuments, canUploadDocuments, canDeleteDocuments, mapPrismaRoleToRole } from "@/lib/permissions";
 import { formatFileSize, getFileIcon, getFileTypeCategory } from "@/lib/file-utils";
 
+type Pagination = {
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+};
+
 export default function DocumentsPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -18,6 +27,7 @@ export default function DocumentsPage() {
   const [error, setError] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 10, totalCount: 0, totalPages: 1, hasNext: false, hasPrev: false });
   
   // Filters
   const [filters, setFilters] = useState<DocumentFilters>({
@@ -59,6 +69,7 @@ export default function DocumentsPage() {
         const data = await response.json();
         setDocuments(data.documents);
         setTotalPages(data.pagination.totalPages);
+        setPagination(data.pagination as Pagination);
       } else {
         setError('Failed to fetch documents');
       }
@@ -428,19 +439,20 @@ export default function DocumentsPage() {
         {totalPages > 1 && (
           <div className="bg-white px-6 py-4 border-t border-slate-200 flex items-center justify-between">
             <div className="text-sm text-slate-600">
-              Page {currentPage} of {totalPages}
+              Page <span className="font-medium text-slate-900">{pagination.page}</span> of <span className="font-medium text-slate-900">{pagination.totalPages}</span>
+              <span className="ml-2">· Total <span className="font-medium text-slate-900">{pagination.totalCount}</span> documents</span>
             </div>
             <div className="flex space-x-2">
               <button
                 onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
+                disabled={!pagination.hasPrev}
                 className="px-3 py-1 border border-slate-300 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
               >
                 Previous
               </button>
               <button
                 onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage === totalPages}
+                disabled={!pagination.hasNext}
                 className="px-3 py-1 border border-slate-300 rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50"
               >
                 Next

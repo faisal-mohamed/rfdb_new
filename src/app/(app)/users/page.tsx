@@ -32,6 +32,13 @@ interface UserStats {
   roleBreakdown: Record<string, number>;
 }
 
+type Pagination = {
+  page: number;
+  limit: number;
+  total: number;
+  pages: number;
+};
+
 export default function UsersPage() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -44,6 +51,7 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState<UserRole | "">("");
   const [statusFilter, setStatusFilter] = useState<"active" | "inactive" | "">("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 10, total: 0, pages: 1 });
   const [error, setError] = useState("");
 
   // Check if user is admin
@@ -65,6 +73,7 @@ export default function UsersPage() {
       if (response.ok) {
         const data = await response.json();
         setUsers(data.users);
+        if (data.pagination) setPagination(data.pagination as Pagination);
       } else {
         setError('Failed to fetch users');
       }
@@ -329,6 +338,32 @@ export default function UsersPage() {
         onDeleteUser={handleDeleteUser}
         onRefresh={fetchUsers}
       />
+
+      {/* Pagination Controls */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="text-sm text-slate-600">
+          Page <span className="font-medium text-slate-900">{pagination.page}</span> of <span className="font-medium text-slate-900">{pagination.pages}</span>
+          {typeof pagination.total === 'number' && (
+            <span className="ml-2">· Total <span className="font-medium text-slate-900">{pagination.total}</span> users</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage <= 1}
+            className="px-3 py-1.5 border border-slate-300 rounded-md text-sm disabled:opacity-50 hover:bg-slate-50"
+          >
+            Prev
+          </button>
+          <button
+            onClick={() => setCurrentPage(p => Math.min((pagination?.pages || p + 1), p + 1))}
+            disabled={currentPage >= (pagination?.pages || 1)}
+            className="px-3 py-1.5 border border-slate-300 rounded-md text-sm disabled:opacity-50 hover:bg-slate-50"
+          >
+            Next
+          </button>
+        </div>
+      </div>
 
       {/* Edit User Modal */}
       <EditUserModal
