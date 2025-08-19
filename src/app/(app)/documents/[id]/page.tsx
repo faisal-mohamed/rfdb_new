@@ -1,9 +1,9 @@
-// no "use client" here — this is a Server Component
-
+// app/(app)/documents/[id]/page.ts
 import DocumentDetailsClient from "./DocumentDetailsPage";
 
-export default function DocumentDetailsPage({
+export default async function DocumentDetailsPage({
   params,
-}: { params: { id: string } }) {
-  return <DocumentDetailsClient id={params.id} />;
+}: { params: Promise<{ id: string }> }) {
+  const { id } = await params; // await is safe even if it's a plain object
+  return <DocumentDetailsClient id={id} />;
 }
