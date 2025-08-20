@@ -340,7 +340,12 @@ export default function DocumentDetailsClient({ id }: Props) {
     );
   };
 
-  if (loading) return <div className="p-8">Loading...</div>;
+  if (loading) return  <div className="min-h-screen flex items-center justify-center">
+  <div className="text-center">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+    <p className="mt-2 text-slate-600">Loading...</p>
+  </div>
+</div>;
   if (!doc) return <div className="p-8">Not found</div>;
 
   return (

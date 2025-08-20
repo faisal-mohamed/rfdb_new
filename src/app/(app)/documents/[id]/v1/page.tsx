@@ -365,14 +365,14 @@ export default function DocumentV1Page() {
             {/* Editor toolbar */}
             {hasV1 && canEdit && (
               <div className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-2xl shadow p-4 flex items-center justify-between">
-                <div className="text-sm text-slate-600">Make updates to extracted content only. Structure and order are preserved.</div>
+                <div className="text-sm text-slate-600"></div>
                 <div className="flex gap-3">
-                  <button
+                  {/* <button
                     onClick={() => setV1Data(originalV1)}
                     className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50"
                   >
                     Reset
-                  </button>
+                  </button> */}
                   <button
                     onClick={async () => { await saveV1Changes(v1Data); }}
                     disabled={processing}
@@ -381,7 +381,7 @@ export default function DocumentV1Page() {
                     Submit
                   </button>
                   <div className="w-px h-6 bg-slate-200" />
-                  <button
+                  {/* <button
                     onClick={goPrev}
                     disabled={currentSectionIdx === 0}
                     className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
@@ -394,7 +394,7 @@ export default function DocumentV1Page() {
                     className="px-5 py-2.5 rounded-xl text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
                   >
                     Next
-                  </button>
+                  </button> */}
                 </div>
               </div>
             )}
