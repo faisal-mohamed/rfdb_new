@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
-import JsonEditor from '@/components/JsonEditor';
 import { useToast } from '@/components/ui/Toast';
 import WorkflowStatusBadge from '@/components/WorkflowStatusBadge';
 import { DocumentWithWorkflow, VersionType, WorkflowStatus } from '@/types/workflow';
@@ -19,6 +18,8 @@ export default function DocumentV2Page() {
   const [processing, setProcessing] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [v2Data, setV2Data] = useState<any>(null);
+  const [originalV2, setOriginalV2] = useState<any>(null);
+  const [orderMap, setOrderMap] = useState<Record<string, string[]>>({});
   const { showToast } = useToast();
 
   const documentId = params.id as string;
@@ -48,6 +49,21 @@ export default function DocumentV2Page() {
         const v2Version = result.data.versions?.find((v: any) => v.versionType === VersionType.VERSION_2);
         if (v2Version) {
           setV2Data(v2Version.jsonContent);
+          setOriginalV2(v2Version.jsonContent);
+          // Capture original key order for all nodes
+          const map: Record<string, string[]> = {};
+          const toKey = (path: string[]) => path.map(seg => encodeURIComponent(seg)).join('|');
+          const walk = (node: any, path: string[]) => {
+            if (node && typeof node === 'object' && !Array.isArray(node) && !('extracted_data' in node && 'pages' in node)) {
+              const k = toKey(path);
+              map[k] = Object.keys(node);
+              for (const childKey of map[k]) {
+                walk(node[childKey], [...path, childKey]);
+              }
+            }
+          };
+          walk(v2Version.jsonContent, []);
+          setOrderMap(map);
         }
       } else {
         console.error('Failed to fetch document:', result.error);
@@ -128,6 +144,57 @@ export default function DocumentV2Page() {
       setProcessing(false);
     }
   };
+
+  const toKey = useCallback((path: string[]) => path.map(seg => encodeURIComponent(seg)).join('|'), []);
+  const isLeaf = (node: any) => node && typeof node === 'object' && 'extracted_data' in node && 'pages' in node;
+  const updateExtractedData = useCallback((path: string[], value: string) => {
+    const updateRecursive = (node: any, depth: number): any => {
+      if (isLeaf(node) && depth === path.length) {
+        return { ...node, extracted_data: value };
+      }
+      const keyAt = path[depth];
+      const child = node?.[keyAt];
+      if (child === undefined) return node;
+      const nextChild = updateRecursive(child, depth + 1);
+      if (nextChild === child) return node;
+      const keys = Object.keys(node);
+      const out: any = {};
+      for (const k of keys) out[k] = k === keyAt ? nextChild : node[k];
+      return out;
+    };
+    setV2Data((prev: any) => updateRecursive(prev, 0));
+    setHasChanges(true);
+  }, []);
+
+  const renderNode = useCallback((node: any, path: string[] = []): React.ReactElement => {
+    if (isLeaf(node)) {
+      const pagesText = (node.pages as number[]).join(', ');
+      return (
+        <div className="space-y-2">
+          <textarea
+            value={node.extracted_data}
+            onChange={(e) => updateExtractedData(path, e.target.value)}
+            disabled={!permissions.canEdit}
+            rows={5}
+            className="w-full resize-y px-4 py-3 rounded-lg border border-gray-200 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-50"
+          />
+          <div className="text-xs text-gray-500">Pages: {pagesText || '-'}</div>
+        </div>
+      );
+    }
+    const pathKey = toKey(path);
+    const keysInOrder = orderMap[pathKey] ?? Object.keys(node ?? {});
+    return (
+      <div className="space-y-6">
+        {keysInOrder.map((k) => (
+          <div key={toKey([...path, k])} className="">
+            <div className="text-sm font-semibold text-gray-800 mb-2">{k}</div>
+            {renderNode(node[k], [...path, k])}
+          </div>
+        ))}
+      </div>
+    );
+  }, [orderMap, permissions.canEdit, toKey, updateExtractedData]);
 
   const requestApproval = async () => {
     if (!document) return;
@@ -274,7 +341,7 @@ export default function DocumentV2Page() {
           </div>
         </div>
 
-        {/* V2 Content */}
+        {/* V2 Content - Per-field textareas preserving incoming order */}
         <div className="bg-white rounded-lg shadow-sm border">
           <div className="px-6 py-4 border-b">
             <h3 className="text-lg font-semibold text-gray-900">
@@ -303,15 +370,27 @@ export default function DocumentV2Page() {
                 </button>
               </div>
             ) : hasV2 && v2Data ? (
-              <JsonEditor
-                initialData={v2Data}
-                onSave={saveV2Changes}
-                onCancel={() => {
-                  setV2Data(v2Version?.jsonContent);
-                  setHasChanges(false);
-                }}
-                isReadOnly={!canEdit}
-              />
+              <div className="space-y-6">
+                {/* Controls */}
+                {canEdit && (
+                  <div className="flex gap-3 mb-2">
+                    <button
+                      onClick={() => { setV2Data(originalV2); setHasChanges(false); }}
+                      className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      onClick={async () => { await saveV2Changes(v2Data); }}
+                      disabled={processing}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                )}
+                {renderNode(v2Data, [])}
+              </div>
             ) : (
               <div className="text-center py-12">
                 <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
