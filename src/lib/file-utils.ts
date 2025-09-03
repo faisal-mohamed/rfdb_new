@@ -142,7 +142,9 @@ export function getFileTypeCategory(extension: string): string {
 /**
  * Get file icon based on extension
  */
-export function getFileIcon(extension: string): string {
+export function getFileIcon(extension: string | undefined): string {
+  if (!extension) return '📁';
+  
   const ext = extension.toLowerCase();
   
   switch (ext) {

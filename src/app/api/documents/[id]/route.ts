@@ -1,313 +1,74 @@
-// import { NextRequest, NextResponse } from 'next/server';
-// import { getServerSession } from 'next-auth';
-// import { authOptions } from '@/lib/auth-config';
-// import { prisma } from '@/lib/prisma';
-
-// // GET /api/documents/[id] - Get single document with full content
-// export async function GET(
-//   request: NextRequest,
-//   { params }: { params: { id: string } }
-// ) {
-//   try {
-//     const session = await getServerSession(authOptions);
-    
-//     if (!session?.user) {
-//       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-//     }
-
-//     // Check if user has permission to view documents
-//     const userRole = session.user.role;
-//     if (!['ADMIN', 'EDITOR'].includes(userRole)) {
-//       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-//     }
-
-//     const document = await prisma.document.findUnique({
-//       where: { id: params.id },
-//       include: {
-//         uploader: {
-//           select: {
-//             id: true,
-//             firstName: true,
-//             lastName: true,
-//             email: true,
-//           },
-//         },
-//       },
-//     });
-
-//     if (!document) {
-//       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
-//     }
-
-//     return NextResponse.json({ document });
-//   } catch (error) {
-//     console.error('Error fetching document:', error);
-//     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-//   }
-// }
-
-// // PUT /api/documents/[id] - Update document metadata (not file content)
-// export async function PUT(
-//   request: NextRequest,
-//   { params }: { params: { id: string } }
-// ) {
-//   try {
-//     const session = await getServerSession(authOptions);
-    
-//     if (!session?.user) {
-//       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-//     }
-
-//     // Check if user has permission to edit documents
-//     const userRole = session.user.role;
-//     if (!['ADMIN', 'EDITOR'].includes(userRole)) {
-//       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-//     }
-
-//     const body = await request.json();
-//     const { customerName, description, tags, status } = body;
-
-//     // Check if document exists
-//     const existingDocument = await prisma.document.findUnique({
-//       where: { id: params.id },
-//     });
-
-//     if (!existingDocument) {
-//       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
-//     }
-
-//     // Update document
-//     const updatedDocument = await prisma.document.update({
-//       where: { id: params.id },
-//       data: {
-//         ...(customerName && { customerName }),
-//         ...(description !== undefined && { description }),
-//         ...(tags && { tags }),
-//         ...(status && { status }),
-//       },
-//       include: {
-//         uploader: {
-//           select: {
-//             id: true,
-//             firstName: true,
-//             lastName: true,
-//             email: true,
-//           },
-//         },
-//       },
-//     });
-
-//     // Return document without file content
-//     const { fileContent: _, ...documentResponse } = updatedDocument;
-
-//     return NextResponse.json({
-//       message: 'Document updated successfully',
-//       document: documentResponse,
-//     });
-//   } catch (error) {
-//     console.error('Error updating document:', error);
-//     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-//   }
-// }
-
-// // DELETE /api/documents/[id] - Delete document (soft delete by default)
-// export async function DELETE(
-//   request: NextRequest,
-//   { params }: { params: { id: string } }
-// ) {
-//   try {
-//     const session = await getServerSession(authOptions);
-    
-//     if (!session?.user) {
-//       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-//     }
-
-//     // Check if user has permission to delete documents (only ADMIN)
-//     const userRole = session.user.role;
-//     if (userRole !== 'ADMIN') {
-//       return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-//     }
-
-//     const { searchParams } = new URL(request.url);
-//     const permanent = searchParams.get('permanent') === 'true';
-
-//     // Check if document exists
-//     const existingDocument = await prisma.document.findUnique({
-//       where: { id: params.id },
-//     });
-
-//     if (!existingDocument) {
-//       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
-//     }
-
-//     if (permanent) {
-//       // Permanent deletion
-//       await prisma.document.delete({
-//         where: { id: params.id },
-//       });
-      
-//       return NextResponse.json({
-//         message: 'Document permanently deleted',
-//       });
-//     } else {
-//       // Soft delete
-//       await prisma.document.update({
-//         where: { id: params.id },
-//         data: { status: 'DELETED' },
-//       });
-      
-//       return NextResponse.json({
-//         message: 'Document moved to trash',
-//       });
-//     }
-//   } catch (error) {
-//     console.error('Error deleting document:', error);
-//     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-//   }
-// }
-
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
-import { prisma } from '@/lib/prisma';
+import { getSimplePermissions } from '@/lib/simplePermissions';
 
-// GET /api/documents/[id] - Get single document with full content
+// GET /api/documents/[id] - Get single document details from external API
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params;
-
     const session = await getServerSession(authOptions);
+    
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    if (!['ADMIN', 'EDITOR'].includes(session.user.role)) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
+    const permissions = getSimplePermissions(session.user.role);
+    if (!permissions.canView) {
+      return NextResponse.json({ error: 'You do not have permission to view documents' }, { status: 403 });
     }
 
-    const document = await prisma.document.findUnique({
-      where: { id },
-      include: {
-        uploader: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-      },
+    const { id: processId } = await context.params;
+
+    // Call external API to get document details
+    const trackingPayload = {
+      pagination: "1-10" // Default pagination for single document lookup
+    };
+
+    const response = await fetch(`${process.env.AI_URL}/document_extraction/tracking_page`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(trackingPayload),
     });
 
-    if (!document) {
+    if (!response.ok) {
+      throw new Error(`External API error: ${response.status}`);
+    }
+
+    const result = await response.json();
+    
+    // Find the specific document by process_id
+    const docData = result.status.find((doc: any) => doc.process_id === processId);
+    
+    if (!docData) {
       return NextResponse.json({ error: 'Document not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ document });
+    // Transform the response to match frontend expectations
+    const document = {
+      id: docData.process_id,
+      fileName: docData.filename,
+      fileType: docData.filename.split('.').pop()?.toLowerCase() || 'unknown',
+      customerName: docData.customer_name,
+      status: docData.status,
+      workflowStatus: docData.status,
+      uploadedDate: docData.start_time,
+      verificationStatus: docData.verification_status,
+      layoutId: docData.layout_id,
+      workflowId: docData.workflow_id,
+      fileSize: 1024000, // Mock size since not provided by external API
+      uploader: {
+        firstName: session.user.firstName || 'System',
+        lastName: session.user.lastName || 'User',
+        email: session.user.email || 'system@company.com'
+      }
+    };
+
+    return NextResponse.json(document);
   } catch (error) {
     console.error('Error fetching document:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
-
-// PUT /api/documents/[id] - Update document metadata
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (!['ADMIN', 'EDITOR'].includes(session.user.role)) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-    }
-
-    const body = await request.json();
-    const { customerName, description, tags, status } = body;
-
-    const existingDocument = await prisma.document.findUnique({ where: { id } });
-    if (!existingDocument) {
-      return NextResponse.json({ error: 'Document not found' }, { status: 404 });
-    }
-
-    const updatedDocument = await prisma.document.update({
-      where: { id },
-      data: {
-        ...(customerName && { customerName }),
-        ...(description !== undefined && { description }),
-        ...(tags && { tags }),
-        ...(status && { status }),
-      },
-      include: {
-        uploader: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-          },
-        },
-      },
-    });
-
-    const { fileContent: _, ...documentResponse } = updatedDocument;
-
-    return NextResponse.json({
-      message: 'Document updated successfully',
-      document: documentResponse,
-    });
-  } catch (error) {
-    console.error('Error updating document:', error);
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
-  }
-}
-
-// DELETE /api/documents/[id] - Delete document
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id } = await params;
-
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    if (session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-    }
-
-    const { searchParams } = new URL(request.url);
-    const permanent = searchParams.get('permanent') === 'true';
-
-    const existingDocument = await prisma.document.findUnique({ where: { id } });
-    if (!existingDocument) {
-      return NextResponse.json({ error: 'Document not found' }, { status: 404 });
-    }
-
-    if (permanent) {
-      await prisma.document.delete({ where: { id } });
-      return NextResponse.json({ message: 'Document permanently deleted' });
-    } else {
-      await prisma.document.update({
-        where: { id },
-        data: { status: 'DELETED' },
-      });
-      return NextResponse.json({ message: 'Document moved to trash' });
-    }
-  } catch (error) {
-    console.error('Error deleting document:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

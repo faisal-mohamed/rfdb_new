@@ -95,9 +95,8 @@ model Document {
   updatedAt     DateTime       @updatedAt
   uploadedBy    String         // ID of user who uploaded the document
   
-  // Relations
+  // Relations - NO versions relation since we use external IDs
   uploader      User           @relation("DocumentUploadedBy", fields: [uploadedBy], references: [id])
-  versions      DocumentVersion[]
   
   @@index([customerName])
   @@index([fileType])
@@ -120,7 +119,7 @@ enum VersionStatus {
 
 model DocumentVersion {
   id            String        @id @default(cuid())
-  documentId    String        // Reference to parent document
+  documentId    String        // External process_id (no relation)
   versionType   VersionType   // V1 or V2
   versionNumber Int           // 1, 2, 3... for tracking edits within same version type
   status        VersionStatus @default(GENERATED)
@@ -148,8 +147,7 @@ model DocumentVersion {
   updatedAt     DateTime      @updatedAt
   createdBy     String        // User who created this version
   
-  // Relations
-  document      Document      @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  // Relations - NO document relation, only user relations
   creator       User          @relation("VersionCreatedBy", fields: [createdBy], references: [id])
   editor        User?         @relation("VersionEditedBy", fields: [editedBy], references: [id])
   approver      User?         @relation("VersionApprovedBy", fields: [approvedBy], references: [id])

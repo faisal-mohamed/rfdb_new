@@ -165,17 +165,11 @@ export default function DocumentUploadPage() {
       // Convert file to base64
       const base64Content = await fileToBase64(selectedFile);
       
-      // Prepare upload data
+      // Prepare upload data - simplified for external API
       const uploadData = {
         fileName: selectedFile.name,
-        fileType: selectedFile.name.split('.').pop()?.toLowerCase() || '',
-        mimeType: selectedFile.type,
-        fileSize: selectedFile.size,
         fileContent: base64Content,
         customerName: formData.customerName.trim(),
-        uploadedDate: formData.uploadedDate,
-        description: formData.description.trim() || undefined,
-        tags: formData.tags ? formData.tags.split(',').map(tag => tag.trim()).filter(Boolean) : []
       };
 
       // Upload document
@@ -189,11 +183,9 @@ export default function DocumentUploadPage() {
 
       const result = await response.json();
 
-      console.log("result", result);
-
-      if (response.ok && result.document) {
-        // Auto-generate V1 after successful upload
-        await generateV1AfterUpload(result.document.id);
+      if (response.ok) {
+        // Redirect to documents list after successful upload
+        router.push('/documents?uploaded=true');
       } else {
         setError(result.error || 'Upload failed');
       }

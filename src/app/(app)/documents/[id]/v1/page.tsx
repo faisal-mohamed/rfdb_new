@@ -1,291 +1,222 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
-// Raw JSON textarea editor (no component)
-import WorkflowStatusBadge from '@/components/WorkflowStatusBadge';
-import { useToast } from '@/components/ui/Toast';
-import { DocumentWithWorkflow, VersionType, WorkflowStatus } from '@/types/workflow';
-import { getSimplePermissions } from '@/lib/simplePermissions';
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { getSimplePermissions } from "@/lib/simplePermissions";
+import { useToast } from "@/components/ui/Toast";
+import Link from "next/link";
 
-export default function DocumentV1Page() {
-  const params = useParams();
+export default function V1EditorPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { data: session } = useSession();
-  const [document, setDocument] = useState<DocumentWithWorkflow | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-  const [v1Data, setV1Data] = useState<any>(null);
-  const [originalV1, setOriginalV1] = useState<any>(null);
-  const [orderMap, setOrderMap] = useState<Record<string, string[]>>({});
-  const [currentSectionIdx, setCurrentSectionIdx] = useState(0);
-
-  const documentId = params.id as string;
-  const permissions = getSimplePermissions(session?.user?.role || 'VIEWER');
   const { showToast } = useToast();
-  const canEdit = permissions.canEdit;
-  const canProcess = permissions.canProcess;
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [v1Data, setV1Data] = useState<any>(null);
+  const [editedData, setEditedData] = useState<any>(null);
+  const [currentSectionIdx, setCurrentSectionIdx] = useState(0);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  
+  const permissions = getSimplePermissions(session?.user?.role || "VIEWER");
 
-  // Top-level section keys for left-side index (preserve original order)
-  const topLevelKeys = useMemo(() => {
-    if (!v1Data) return [] as string[];
-    const rootKey = '';
-    return orderMap[rootKey] ?? Object.keys(v1Data);
-  }, [orderMap, v1Data]);
+  // Get all field keys from all pages
+  const allFieldKeys = useMemo(() => {
+    if (!editedData) return [];
+    const fieldKeys: string[] = [];
+    
+    Object.values(editedData).forEach((pageData: any) => {
+      pageData.extracted_content?.[0]?.fields?.forEach((field: any) => {
+        Object.keys(field).forEach(key => {
+          if (!fieldKeys.includes(key)) {
+            fieldKeys.push(key);
+          }
+        });
+      });
+    });
+    
+    return fieldKeys;
+  }, [editedData]);
 
-  useEffect(() => {
-    setCurrentSectionIdx(0);
-  }, [documentId]);
+  const currentFieldKey = useMemo(
+    () => allFieldKeys[currentSectionIdx] ?? null,
+    [allFieldKeys, currentSectionIdx]
+  );
 
-  const currentSectionKey = useMemo(() => topLevelKeys[currentSectionIdx] ?? null, [topLevelKeys, currentSectionIdx]);
-  const currentSectionNode = useMemo(() => (currentSectionKey ? v1Data?.[currentSectionKey] : null), [v1Data, currentSectionKey]);
-
-  const goPrev = useCallback(() => {
-    setCurrentSectionIdx((idx) => Math.max(0, idx - 1));
-  }, []);
-
-  const goNext = useCallback(() => {
-    setCurrentSectionIdx((idx) => Math.min(topLevelKeys.length - 1, idx + 1));
-  }, [topLevelKeys.length]);
-
-  useEffect(() => {
-    if (documentId) {
-      fetchDocument();
-    }
-  }, [documentId]);
-
-  const fetchDocument = async () => {
-    try {
-      const response = await fetch(`/api/workflow?documentId=${documentId}`);
-      const result = await response.json();
-      
-      if (result.success) {
-        setDocument(result.data);
-        const v1Version = result.data.versions?.find((v: any) => v.versionType === VersionType.VERSION_1);
-        if (v1Version) {
-          setV1Data(v1Version.jsonContent);
-          setOriginalV1(v1Version.jsonContent);
-          // Capture original key order for all nodes
-          const map: Record<string, string[]> = {};
-          const toKey = (path: string[]) => path.map(seg => encodeURIComponent(seg)).join('|');
-          const walk = (node: any, path: string[]) => {
-            if (node && typeof node === 'object' && !Array.isArray(node) && !('extracted_data' in node && 'pages' in node)) {
-              const k = toKey(path);
-              map[k] = Object.keys(node);
-              for (const childKey of map[k]) {
-                walk(node[childKey], [...path, childKey]);
-              }
-            }
+  // Find the field data for the current field key across all pages
+  const currentFieldData = useMemo(() => {
+    if (!currentFieldKey || !editedData) return null;
+    
+    for (const [pageKey, pageData] of Object.entries(editedData)) {
+      const fields = (pageData as any).extracted_content?.[0]?.fields || [];
+      for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
+        const field = fields[fieldIndex];
+        if (field[currentFieldKey]) {
+          return {
+            pageKey,
+            fieldIndex,
+            fieldData: field[currentFieldKey]
           };
-          walk(v1Version.jsonContent, []);
-          setOrderMap(map);
         }
+      }
+    }
+    return null;
+  }, [currentFieldKey, editedData]);
+
+  useEffect(() => {
+    loadV1Data();
+  }, [params.id]);
+
+  const loadV1Data = async () => {
+    try {
+      const response = await fetch(`/api/documents/${params.id}/v1-content`);
+      if (response.ok) {
+        const data = await response.json();
+        setV1Data(data);
+        setEditedData(JSON.parse(JSON.stringify(data))); // Deep copy for editing
       } else {
-        console.error('Failed to fetch document:', result.error);
+        showToast({ variant: "error", message: "Failed to load V1 data" });
       }
     } catch (error) {
-      console.error('Error fetching document:', error);
+      console.error("Error loading V1 data:", error);
+      showToast({ variant: "error", message: "Error loading V1 data" });
     } finally {
       setLoading(false);
     }
   };
 
-  const generateV1 = async () => {
-    if (!document) return;
+  const saveV1 = async () => {
+    if (!editedData) return;
     
-    setProcessing(true);
+    setSaving(true);
     try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'process_v1',
-          documentId,
-        }),
+      const response = await fetch(`/api/documents/${params.id}/v1-content`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editedData }),
       });
 
-      const result = await response.json();
-      
-      if (result.success) {
-        await fetchDocument(); // Refresh to get the new V1 data
-        showToast({ variant: 'success', message: 'Version 1 generated successfully!' });
+      if (response.ok) {
+        showToast({ variant: "success", message: "V1 content saved successfully" });
+        setHasChanges(false);
       } else {
-        showToast({ variant: 'error', message: result.error || 'Failed to generate V1' });
+        const error = await response.json();
+        showToast({ variant: "error", message: error.error || "Failed to save V1 content" });
       }
     } catch (error) {
-      console.error('Generate V1 error:', error);
-      showToast({ variant: 'error', message: 'An error occurred while generating Version 1' });
+      console.error("Error saving V1 content:", error);
+      showToast({ variant: "error", message: "Error saving V1 content" });
     } finally {
-      setProcessing(false);
+      setSaving(false);
     }
   };
 
-  const saveV1Changes = async (updatedData: any) => {
-    if (!document) return;
+  const verifyV1 = async () => {
+    // Route to preview page instead of direct verification
+    router.push(`/documents/${params.id}/v1/preview`);
+  };
+
+  const updateFieldValue = useCallback((pageKey: string, fieldIndex: number, fieldKey: string, newValue: string) => {
+    if (!editedData) return;
     
-    const v1Version = document.versions?.find(v => v.versionType === VersionType.VERSION_1);
-    if (!v1Version) return;
+    const updated = { ...editedData };
+    if (updated[pageKey]?.extracted_content?.[0]?.fields?.[fieldIndex]?.[fieldKey]) {
+      updated[pageKey].extracted_content[0].fields[fieldIndex][fieldKey].value = newValue;
+      setEditedData(updated);
+      setHasChanges(true);
+    }
+  }, [editedData]);
 
-    setProcessing(true);
-    try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'save_v1',
-          documentId,
-          versionId: v1Version.id,
-          jsonContent: updatedData
-        }),
-      });
+  const updateCurrentField = useCallback((newValue: string) => {
+    if (!currentFieldData || !currentFieldKey) return;
+    updateFieldValue(currentFieldData.pageKey, currentFieldData.fieldIndex, currentFieldKey, newValue);
+  }, [currentFieldData, currentFieldKey, updateFieldValue]);
 
-      const result = await response.json();
+  // Parse content into subsections
+  const parseContentSections = useCallback((content: string) => {
+    if (!content) return [];
+    
+    const sections = [];
+    const lines = content.split('\n');
+    let currentSection = { title: '', content: '' };
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
       
-      if (result.success) {
-        setV1Data(updatedData);
-        // Mark V1 as completed on submit
-        await completeV1Inline(v1Version.id);
-        // If V2 exists already, do nothing here (no regenerate prompt from V1)
-        const v2Exists = document.versions?.some(v => v.versionType === VersionType.VERSION_2);
-        if (!v2Exists && permissions.canProcess) {
-          await generateV2Inline();
+      // Check if it's a main heading (Purpose:, Scope:, etc.)
+      if (trimmedLine.endsWith(':') && trimmedLine.length < 50) {
+        if (currentSection.title || currentSection.content) {
+          sections.push({ ...currentSection });
         }
-        // Navigate to details page after submit
-        router.push(`/documents/${documentId}`);
-      } else {
-        showToast({ variant: 'error', message: result.error || 'Failed to save V1' });
+        currentSection = { title: trimmedLine, content: '' };
       }
-    } catch (error) {
-      console.error('Save V1 error:', error);
-      showToast({ variant: 'error', message: 'An error occurred while saving Version 1' });
-    } finally {
-      setProcessing(false);
+      // Check if it's a lettered subsection (a), b), etc.)
+      else if (/^[a-z]\)\s/.test(trimmedLine)) {
+        if (currentSection.content) {
+          sections.push({ ...currentSection });
+        }
+        currentSection = { title: trimmedLine, content: '' };
+      }
+      // Regular content line
+      else if (trimmedLine) {
+        if (currentSection.content) {
+          currentSection.content += '\n' + line;
+        } else {
+          currentSection.content = line;
+        }
+      }
     }
-  };
-
-  const generateV2 = () => {
-    router.push(`/documents/${documentId}/v2?generateNew=true`);
-  };
-
-  const generateV2Inline = async () => {
-    setProcessing(true);
-    try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'process_v2', documentId }),
-      });
-      const result = await response.json();
-      if (result.success) {
-        showToast({ variant: 'success', message: 'Version 2 generated successfully!' });
-      } else {
-        showToast({ variant: 'error', message: result.error || 'Failed to generate V2' });
-      }
-    } catch (e) {
-      console.error('Generate V2 inline error:', e);
-      showToast({ variant: 'error', message: 'An error occurred while generating Version 2' });
-    } finally {
-      setProcessing(false);
+    
+    // Add the last section
+    if (currentSection.title || currentSection.content) {
+      sections.push(currentSection);
     }
-  };
-
-  const completeV1Inline = async (versionId: string) => {
-    try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'complete_v1', documentId, versionId }),
-      });
-      const result = await response.json();
-      if (!result.success) {
-        console.error('Complete V1 error:', result.error);
-        showToast({ variant: 'error', message: 'An error occurred while submitting V1' });
-      }
-    } catch (e) {
-      console.error('Complete V1 request error:', e);
-      showToast({ variant: 'error', message: 'An error occurred while submitting V1' });
-    }
-  };
-
-  const toKey = useCallback((path: string[]) => path.map(seg => encodeURIComponent(seg)).join('|'), []);
-  const isLeaf = (node: any) => node && typeof node === 'object' && 'extracted_data' in node && 'pages' in node;
-  const updateExtractedData = useCallback((path: string[], value: string) => {
-    const updateRecursive = (node: any, depth: number): any => {
-      if (isLeaf(node) && depth === path.length) {
-        return { ...node, extracted_data: value };
-      }
-      const keyAt = path[depth];
-      const child = node?.[keyAt];
-      if (child === undefined) return node;
-      const nextChild = updateRecursive(child, depth + 1);
-      if (nextChild === child) return node;
-      // rebuild preserving original order
-      const keys = Object.keys(node);
-      const out: any = {};
-      for (const k of keys) out[k] = k === keyAt ? nextChild : node[k];
-      return out;
-    };
-    setV1Data((prev: any) => updateRecursive(prev, 0));
+    
+    return sections;
   }, []);
 
-  const renderNode = useCallback((node: any, path: string[] = []): React.ReactElement => {
-    if (isLeaf(node)) {
-      const pagesText = (node.pages as number[]).join(', ');
-      return (
-        <div className="space-y-2">
-          <textarea
-            value={node.extracted_data}
-            onChange={(e) => updateExtractedData(path, e.target.value)}
-            disabled={!canEdit}
-            rows={5}
-            className="w-full resize-y px-4 py-3 rounded-xl border border-white/40 bg-white/80 backdrop-blur-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 disabled:bg-gray-50"
-          />
-          <div className="text-xs text-gray-500">Pages: {pagesText || '-'}</div>
-        </div>
-      );
-    }
-    const pathKey = toKey(path);
-    const keysInOrder = orderMap[pathKey] ?? Object.keys(node ?? {});
-    return (
-      <div className="space-y-6">
-        {keysInOrder.map((k) => (
-          <div key={toKey([...path, k])} className="">
-            <div className={path.length === 0 ? 'text-base font-semibold text-slate-900 mb-3 tracking-wide' : 'text-sm font-semibold text-slate-800 mb-2 tracking-wide'}>
-              {k}
-            </div>
-            {renderNode(node[k], [...path, k])}
-          </div>
-        ))}
-      </div>
-    );
-  }, [canEdit, orderMap, toKey, updateExtractedData]);
+  const updateSectionContent = useCallback((sectionIndex: number, newContent: string) => {
+    if (!currentFieldData || !currentFieldKey) return;
+    
+    const sections = parseContentSections(currentFieldData.fieldData.value || '');
+    sections[sectionIndex] = { ...sections[sectionIndex], content: newContent };
+    
+    // Reconstruct the full content
+    const fullContent = sections.map(section => {
+      if (section.title && section.content) {
+        return section.title + '\n' + section.content;
+      }
+      return section.title || section.content;
+    }).join('\n\n');
+    
+    updateCurrentField(fullContent);
+  }, [currentFieldData, currentFieldKey, parseContentSections, updateCurrentField]);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
-
-  if (!document) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Document Not Found</h2>
-          <p className="text-gray-600">The requested document could not be found.</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-2 text-slate-600">Loading V1 data...</p>
         </div>
       </div>
     );
   }
 
-  const v1Version = document.versions?.find(v => v.versionType === VersionType.VERSION_1);
-  const hasV1 = !!v1Version;
+  if (!v1Data) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-slate-600 mb-4">No V1 data available for this document</p>
+          <Link href={`/documents/${params.id}`} className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+            Back to Document
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen relative">
@@ -300,29 +231,34 @@ export default function DocumentV1Page() {
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
               <div className="space-y-2">
                 <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-slate-900 via-indigo-800 to-purple-800 bg-clip-text text-transparent">
-                  Version 1 · {document.fileName}
+                  Version 1 Editor
                 </h1>
-                <p className="text-slate-600">Customer: <span className="font-semibold text-slate-900">{document.customerName}</span></p>
-                <div className="flex items-center gap-3">
-                  <WorkflowStatusBadge status={document.workflowStatus} />
-                </div>
+                <p className="text-slate-600">Edit extracted document data and save as Version 2</p>
               </div>
               <div className="flex items-center gap-3">
-                {!hasV1 && canProcess && (
-                  <button
-                    onClick={generateV1}
-                    disabled={processing}
-                    className="px-5 py-2.5 rounded-xl text-white bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
-                  >
-                    {processing ? 'Generating V1…' : 'Generate Version 1'}
-                  </button>
-                )}
-                <button
-                  onClick={() => router.push('/documents')}
-                  className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50"
-                >
+                <Link href={`/documents/${params.id}`} className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50">
                   Back
-                </button>
+                </Link>
+                {permissions.canEdit && (
+                  <>
+                    <button
+                      onClick={saveV1}
+                      disabled={saving || !hasChanges}
+                      className="px-6 py-2.5 rounded-xl text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+                    >
+                      {saving ? "Saving..." : "Save V1 Content"}
+                    </button>
+                    {!hasChanges && (
+                      <button
+                        onClick={verifyV1}
+                        disabled={isVerified}
+                        className="px-6 py-2.5 rounded-xl text-white bg-gradient-to-r from-green-600 to-emerald-600 shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+                      >
+                        {isVerified ? "V1 Verified ✓" : "Preview & Verify V1"}
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -330,28 +266,35 @@ export default function DocumentV1Page() {
 
         {/* Main grid */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Left sticky info / section index */}
+          {/* Left sidebar: sections navigation */}
           <aside className="lg:col-span-4 space-y-6">
             <div className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-2xl shadow p-5">
               <h2 className="text-sm font-semibold text-slate-900 mb-3">Document Info</h2>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="text-slate-500">Customer</div><div className="text-slate-900 font-medium">{document.customerName}</div>
-                <div className="text-slate-500">Status</div><div className="text-slate-900 font-medium">{document.workflowStatus}</div>
+                <div className="text-slate-500">Fields</div>
+                <div className="text-slate-900 font-medium">{allFieldKeys.length}</div>
+                <div className="text-slate-500">Status</div>
+                <div className="text-slate-900 font-medium">Extracted</div>
               </div>
             </div>
-            {hasV1 && v1Data && (
+
+            {allFieldKeys.length > 0 && (
               <div className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-2xl shadow p-5 sticky top-6">
-                <h2 className="text-sm font-semibold text-slate-900 mb-3">Sections</h2>
+                <h2 className="text-sm font-semibold text-slate-900 mb-3">Fields</h2>
                 <nav className="space-y-2">
-                  {topLevelKeys.map((key, idx) => {
+                  {allFieldKeys.map((key, idx) => {
                     const active = idx === currentSectionIdx;
                     return (
                       <button
                         key={key}
                         onClick={() => setCurrentSectionIdx(idx)}
-                        className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${active ? 'bg-gradient-to-r from-indigo-50 to-purple-50 text-slate-900 border border-indigo-200' : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50'}`}
+                        className={`w-full text-left text-sm px-3 py-2 rounded-lg transition-colors ${
+                          active 
+                            ? 'bg-gradient-to-r from-indigo-50 to-purple-50 text-slate-900 border border-indigo-200' 
+                            : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50'
+                        }`}
                       >
-                        {key}
+                        {key.replace(/_/g, ' ')}
                       </button>
                     );
                   })}
@@ -360,79 +303,143 @@ export default function DocumentV1Page() {
             )}
           </aside>
 
-          {/* Right editor */}
+          {/* Right: editor content */}
           <section className="lg:col-span-8 space-y-6">
             {/* Editor toolbar */}
-            {hasV1 && canEdit && (
-              <div className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-2xl shadow p-4 flex items-center justify-between">
-                <div className="text-sm text-slate-600"></div>
+            {permissions.canEdit && (
+              <div className="bg-white/80 backdrop-blur-xl border border-white/40 rounded-2xl shadow p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="text-sm text-slate-600">
+                  Editing extracted content
+                  {hasChanges && <span className="ml-2 text-orange-600">(Unsaved changes)</span>}
+                </div>
                 <div className="flex gap-3">
-                  {/* <button
-                    onClick={() => setV1Data(originalV1)}
+                  <button
+                    onClick={() => { setEditedData(JSON.parse(JSON.stringify(v1Data))); setHasChanges(false); }}
                     className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50"
                   >
                     Reset
-                  </button> */}
-                  <button
-                    onClick={async () => { await saveV1Changes(v1Data); }}
-                    disabled={processing}
-                    className="px-5 py-2.5 rounded-xl text-white bg-gradient-to-r from-indigo-600 to-purple-600 shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
-                  >
-                    Submit
-                  </button>
-                  <div className="w-px h-6 bg-slate-200" />
-                  {/* <button
-                    onClick={goPrev}
-                    disabled={currentSectionIdx === 0}
-                    className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    Previous
                   </button>
                   <button
-                    onClick={goNext}
-                    disabled={currentSectionIdx >= topLevelKeys.length - 1}
+                    onClick={saveV1}
+                    disabled={saving || !hasChanges}
                     className="px-5 py-2.5 rounded-xl text-white bg-gradient-to-r from-blue-600 to-indigo-600 shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
                   >
-                    Next
-                  </button> */}
+                    {saving ? "Saving..." : "Save V1"}
+                  </button>
+                  {!hasChanges && (
+                    <button
+                      onClick={verifyV1}
+                      disabled={isVerified}
+                      className="px-5 py-2.5 rounded-xl text-white bg-gradient-to-r from-green-600 to-emerald-600 shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+                    >
+                      {isVerified ? "Verified ✓" : "Preview & Verify"}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
 
+            {/* Content card */}
             <div className="bg-white/70 backdrop-blur-xl border border-white/40 rounded-2xl shadow">
               <div className="p-6 section-anim">
-                {hasV1 && v1Data && currentSectionKey ? (
-                  <div className="space-y-4">
-                    <div className="text-lg font-semibold text-slate-900">{currentSectionKey}</div>
-                    <div className="space-y-6 modern-scrollbar">
-                      {renderNode(currentSectionNode, [currentSectionKey as string])}
+                {currentFieldData && currentFieldKey ? (
+                  <div className="space-y-6">
+                    <div className="flex items-center justify-between">
+                      <div className="text-lg font-semibold text-slate-900">
+                        {currentFieldKey.replace(/_/g, ' ')}
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        Found in: Page {currentFieldData.pageKey}
+                      </div>
                     </div>
+                    
+                    {(() => {
+                      const sections = parseContentSections(currentFieldData.fieldData.value || '');
+                      
+                      if (sections.length <= 1) {
+                        // Single section - show as one textarea
+                        return (
+                          <div className="space-y-3">
+                            <textarea
+                              value={currentFieldData.fieldData.value || ""}
+                              onChange={(e) => updateCurrentField(e.target.value)}
+                              className="w-full resize-y px-4 py-3 rounded-xl border border-white/40 bg-white/80 backdrop-blur-md shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 disabled:bg-gray-50 font-mono text-sm"
+                              rows={Math.max(8, (currentFieldData.fieldData.value?.split('\n').length || 1) + 2)}
+                              readOnly={!permissions.canEdit}
+                              placeholder={`Enter ${currentFieldKey.replace(/_/g, ' ').toLowerCase()}...`}
+                            />
+                          </div>
+                        );
+                      }
+                      
+                      // Multiple sections - show as separate inputs
+                      return (
+                        <div className="space-y-4">
+                          {sections.map((section, index) => (
+                            <div key={index} className="bg-slate-50/50 rounded-lg p-4 border border-slate-200/50">
+                              {section.title && (
+                                <div className="text-sm font-semibold text-slate-800 mb-2 bg-white/60 px-3 py-1 rounded-md border">
+                                  {section.title}
+                                </div>
+                              )}
+                              <textarea
+                                value={section.content || ""}
+                                onChange={(e) => updateSectionContent(index, e.target.value)}
+                                className="w-full resize-y px-3 py-2 rounded-lg border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 disabled:bg-gray-50 text-sm"
+                                rows={Math.max(3, (section.content?.split('\n').length || 1) + 1)}
+                                readOnly={!permissions.canEdit}
+                                placeholder="Enter content..."
+                              />
+                            </div>
+                          ))}
+                          
+                          {/* Full content preview */}
+                          <div className="mt-6 pt-4 border-t border-slate-200">
+                            <div className="text-sm font-medium text-slate-700 mb-2">Full Content Preview:</div>
+                            <div className="bg-slate-100 p-3 rounded-lg text-xs font-mono max-h-40 overflow-y-auto">
+                              {currentFieldData.fieldData.value}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    
+                    {currentFieldData.fieldData.boundary && (
+                      <div className="text-xs text-slate-500 pt-2 border-t border-slate-200">
+                        Boundary: {currentFieldData.fieldData.boundary}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-center py-12">
                     <svg className="mx-auto h-12 w-12 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    <h3 className="mt-2 text-lg font-medium text-slate-900">No Version 1 Available</h3>
-                    <p className="mt-1 text-slate-500">
-                      {canProcess 
-                        ? 'Click "Generate Version 1" to create the initial document summary.'
-                        : 'Version 1 has not been generated yet.'
-                      }
-                    </p>
+                    <h3 className="mt-2 text-lg font-medium text-slate-900">No Field Selected</h3>
+                    <p className="mt-1 text-slate-500">Select a field from the sidebar to edit its content.</p>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Raw JSON debug view */}
+            <div className="bg-white/70 backdrop-blur-xl border border-white/40 rounded-2xl shadow">
+              <div className="p-6">
+                <h2 className="text-lg font-semibold text-slate-900 mb-4">Raw JSON Data (Debug)</h2>
+                <pre className="bg-slate-100 p-4 rounded-lg text-xs overflow-auto max-h-96 font-mono">
+                  {JSON.stringify(v1Data, null, 2)}
+                </pre>
               </div>
             </div>
           </section>
         </div>
       </div>
+
+      {/* Global styles */}
       <style jsx global>{`
         .section-anim { animation: fadeSlideIn 240ms ease-out both; }
         @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        .modern-scrollbar::-webkit-scrollbar { width: 8px; height: 8px; }
-        .modern-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .modern-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(99,102,241,0.6), rgba(168,85,247,0.6)); border-radius: 9999px; }
+        @media (prefers-reduced-motion: reduce) { .section-anim { animation: none; } }
       `}</style>
     </div>
   );

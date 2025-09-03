@@ -416,9 +416,9 @@ export default function DocumentsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <p className="text-slate-900">
-                        {document.uploader.firstName} {document.uploader.lastName}
+                        {document.uploader?.firstName || 'Unknown'} {document.uploader?.lastName || 'User'}
                       </p>
-                      <p className="text-sm text-slate-500">{document.uploader.email}</p>
+                      <p className="text-sm text-slate-500">{document.uploader?.email || 'N/A'}</p>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button
