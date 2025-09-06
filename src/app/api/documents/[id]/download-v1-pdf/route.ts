@@ -332,7 +332,7 @@ function generateHTMLFromV1Data(v1Data: any): string {
     <html>
     <head>
       <meta charset="UTF-8">
-      <title>V1 Document Content</title>
+      <title>Extracted Document Content</title>
       <style>
         body { 
           font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -386,7 +386,7 @@ function generateHTMLFromV1Data(v1Data: any): string {
     </head>
     <body>
       <div class="header">
-        <h1 class="main-title">V1 Document Content</h1>
+        <h1 class="main-title">Extracted Document Content</h1>
         <p class="subtitle">Extracted and Formatted Content</p>
       </div>
       <div class="content-wrapper">

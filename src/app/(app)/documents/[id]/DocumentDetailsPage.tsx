@@ -26,16 +26,49 @@ export default function DocumentDetailsClient({ id }: Props) {
   }, [id]);
 
   useEffect(() => {
-    // Start 30-second countdown when component mounts
-    if (countdown > 0 && !v1Data) {
+    // Only start countdown if V1 doesn't exist and document was recently uploaded
+    if (!v1Data && doc && !canGenerateV1) {
+      const uploadTime = new Date(doc.uploadedDate).getTime();
+      const currentTime = new Date().getTime();
+      const timeSinceUpload = Math.floor((currentTime - uploadTime) / 1000);
+      
+      if (timeSinceUpload < 30) {
+        // Still within 30 seconds of upload - start countdown
+        const remainingTime = 30 - timeSinceUpload;
+        setCountdown(remainingTime);
+      } else {
+        // More than 30 seconds have passed - enable V1 generation
+        setCountdown(0);
+        setCanGenerateV1(true);
+      }
+    } else if (v1Data) {
+      // V1 already exists - no countdown needed
+      setCountdown(0);
+      setCanGenerateV1(true);
+    } else if (!v1Data && doc) {
+      // Check if enough time has passed since upload
+      const uploadTime = new Date(doc.uploadedDate).getTime();
+      const currentTime = new Date().getTime();
+      const timeSinceUpload = Math.floor((currentTime - uploadTime) / 1000);
+      
+      if (timeSinceUpload >= 30) {
+        setCanGenerateV1(true);
+        setCountdown(0);
+      }
+    }
+  }, [v1Data, doc, canGenerateV1]);
+
+  useEffect(() => {
+    // Countdown timer - only runs if countdown is active
+    if (countdown > 0 && !canGenerateV1) {
       const timer = setTimeout(() => {
         setCountdown(countdown - 1);
       }, 1000);
       return () => clearTimeout(timer);
-    } else if (countdown === 0) {
+    } else if (countdown === 0 && !canGenerateV1) {
       setCanGenerateV1(true);
     }
-  }, [countdown, v1Data]);
+  }, [countdown, canGenerateV1]);
 
   const loadDocumentData = async () => {
     try {
@@ -46,20 +79,7 @@ export default function DocumentDetailsClient({ id }: Props) {
         setDoc(docData);
       } else {
         // Fallback to mock data if API fails
-        const mockDoc = {
-          id,
-          fileName: "Sample Document.docx",
-          customerName: "Sample Customer",
-          status: "UPLOADED",
-          uploadedDate: new Date().toISOString(),
-          fileType: "docx",
-          fileSize: 1024000,
-          uploader: {
-            firstName: session?.user?.firstName || "User",
-            lastName: session?.user?.lastName || "",
-          }
-        };
-        setDoc(mockDoc);
+        console.error("error");
       }
       
       // Try to load existing V1 data
@@ -68,6 +88,11 @@ export default function DocumentDetailsClient({ id }: Props) {
       setLoading(false);
     }
   };
+
+  
+
+
+
 
   const loadV1Data = async () => {
     try {
@@ -92,7 +117,13 @@ export default function DocumentDetailsClient({ id }: Props) {
   };
 
   const generateV1 = async () => {
+    await loadDocumentData();
     setGeneratingV1(true);
+    if(doc.workflowStatus !== 'READY_FOR_EV') {
+      showToast({ variant: "error", message: "Document is not ready for V1 generation" });
+      setGeneratingV1(false);
+      return;
+    }
     try {
       const response = await fetch(`/api/documents/${id}/generate-v1`, {
         method: 'POST',
@@ -195,100 +226,190 @@ export default function DocumentDetailsClient({ id }: Props) {
   if (!doc) return <div className="p-8">Not found</div>;
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      {/* Header */}
-      <div className="relative mb-8">
-        <div className="absolute -inset-2 bg-gradient-to-r from-blue-500/10 via-indigo-500/10 to-purple-500/10 rounded-2xl blur-xl"></div>
-        <div className="relative bg-white/80 backdrop-blur-xl border border-white/30 rounded-2xl shadow-xl p-6 flex items-start justify-between">
-          <div className="space-y-2">
-            <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 via-blue-700 to-indigo-700 bg-clip-text text-transparent">
-              {doc.fileName}
-            </h1>
-            <p className="text-slate-600">
-              Customer: <span className="font-medium text-slate-800">{doc.customerName}</span>
-            </p>
-            <div>{workflowChip(doc.status)}</div>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link href="/documents" className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-50">
-              Back
-            </Link>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      {/* Animated Background Elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-blue-400/20 to-indigo-600/20 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-tr from-purple-400/20 to-pink-600/20 rounded-full blur-3xl animate-pulse delay-1000"></div>
       </div>
 
-      {/* Main grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Info card */}
-        <div className="lg:col-span-1 bg-white rounded-xl shadow border p-5 space-y-4">
-          <h2 className="text-lg font-semibold text-slate-900">Document Info</h2>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="text-slate-500">File Type</div>
-            <div className="text-slate-900 font-medium">{doc.fileType}</div>
-            <div className="text-slate-500">Size</div>
-            <div className="text-slate-900 font-medium">{(doc.fileSize/1024/1024).toFixed(2)} MB</div>
-            <div className="text-slate-500">Uploaded</div>
-            <div className="text-slate-900 font-medium">{new Date(doc.uploadedDate).toLocaleString()}</div>
-            <div className="text-slate-500">Uploader</div>
-            <div className="text-slate-900 font-medium">{doc.uploader.firstName} {doc.uploader.lastName}</div>
-          </div>
-        </div>
-
-        {/* Actions and Versions */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Version 1 */}
-          <div className="bg-white rounded-xl shadow border p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-slate-900">Version 1 (Extracted Data)</h3>
-              <div className="flex items-center gap-2">
-                {generatingV1 && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>}
-                <div className="text-sm">
-                  {workflowChip(v1Data ? "READY" : generatingV1 ? "PROCESSING" : "PENDING")}
+      <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Enhanced Header */}
+        <div className="mb-8">
+          <div className="relative overflow-hidden rounded-3xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-2xl">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 via-indigo-600/10 to-purple-600/10"></div>
+            <div className="relative p-8">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h1 className="text-4xl font-bold bg-gradient-to-r from-slate-800 via-blue-700 to-indigo-700 bg-clip-text text-transparent">
+                        {doc.fileName}
+                      </h1>
+                      <div className="flex items-center gap-2 mt-1">
+                        <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        </svg>
+                        <span className="text-slate-600 font-medium">{doc.customerName}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {workflowChip(doc.status)}
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      {new Date(doc.uploadedDate).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Link 
+                    href="/documents" 
+                    className="group px-6 py-3 bg-white/80 backdrop-blur-sm border border-white/50 text-slate-700 rounded-xl hover:bg-white/90 transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    Back to Documents
+                  </Link>
                 </div>
               </div>
             </div>
-            
-            {v1Data ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <Link 
-                    href={`/documents/${id}/v1`} 
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                  >
-                    {permissions.canEdit ? "Edit V1" : "View V1"}
-                  </Link>
-                  {v1Data.isVerified && (
-                    <>
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">
-                        ✓ Verified
-                      </span>
-                      <button
-                        onClick={downloadV1PDF}
-                        disabled={downloadingPDF}
-                        className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
-                      >
-                        {downloadingPDF && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
-                        {downloadingPDF ? "Downloading..." : "Download PDF"}
-                      </button>
-                    </>
-                  )}
-                  <p className="text-sm text-slate-600">
-                    {v1Data.isVerified ? "V1 data verified and ready" : "V1 data extracted and ready for editing"}
-                  </p>
-                </div>
-                
-                {/* V1 Data Preview */}
-                <div className="bg-slate-50 rounded-lg p-3">
-                  <p className="text-xs text-slate-500 mb-2">Data Preview:</p>
-                  <div className="text-sm text-slate-700">
-                    Extracted content available for editing
-                    {v1Data.isVerified && <span className="ml-2 text-green-600 font-medium">(Verified)</span>}
+          </div>
+        </div>
+
+        {/* Enhanced Main Grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+          {/* Enhanced Info Card */}
+          <div className="xl:col-span-1">
+            <div className="relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-xl">
+              <div className="absolute inset-0 bg-gradient-to-br from-slate-50/50 to-blue-50/50"></div>
+              <div className="relative p-6">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-500 to-slate-600 flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
                   </div>
+                  <h2 className="text-xl font-bold text-slate-900">Document Info</h2>
+                </div>
+                <div className="space-y-4">
+                  {[
+                    { label: "Layout ID", value: doc.layoutId, icon: "📄" },
+                    { label: "WorkFlow Status", value: doc.workflowStatus, icon: "✅" },
+                    { label: "Uploaded Date", value: new Date(doc.uploadedDate).toLocaleDateString(), icon: "📅" },
+                    { label: "Uploader", value: `${doc.uploader.firstName} ${doc.uploader.lastName}`, icon: "👤" }
+                  ].map((item, index) => (
+                    <div key={index} className="p-4 rounded-xl bg-white/50 border border-white/30">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-lg">{item.icon}</span>
+                        <span className="text-sm font-medium text-slate-600">{item.label}</span>
+                      </div>
+                      <div className="text-sm font-semibold text-slate-900">{item.value}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ) : (
+            </div>
+          </div>
+
+          {/* Enhanced Actions and Versions */}
+          <div className="xl:col-span-2 space-y-6">
+            {/* Version 1 Enhanced Card */}
+            <div className="relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-xl">
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 to-indigo-50/50"></div>
+              <div className="relative p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-bold text-slate-900">Version 1</h3>
+                      <p className="text-slate-600">Extracted Document Data</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {generatingV1 && (
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-600 border-t-transparent"></div>
+                        <span className="text-sm text-blue-600 font-medium">Processing...</span>
+                      </div>
+                    )}
+                    <div className="text-sm">
+                      {workflowChip(v1Data ? (v1Data.isVerified ? "VERIFIED" : "READY") : generatingV1 ? "PROCESSING" : "PENDING")}
+                    </div>
+                  </div>
+                </div>
+                
+                {v1Data ? (
+                  <div className="space-y-6">
+                    <div className="flex flex-wrap items-center gap-4">
+                      <Link 
+                        href={`/documents/${id}/v1`} 
+                        className="group px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 transition-all duration-200 shadow-lg hover:shadow-xl flex items-center gap-2"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        {permissions.canEdit ? "Edit V1" : "View V1"}
+                      </Link>
+                      
+                      {v1Data.isVerified && (
+                        <>
+                          <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-green-100 to-emerald-100 text-green-700 rounded-xl border border-green-200">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="font-semibold">Verified</span>
+                          </div>
+                          <button
+                            onClick={downloadV1PDF}
+                            disabled={downloadingPDF}
+                            className="group px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center gap-2"
+                          >
+                            {downloadingPDF ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                            ) : (
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                              </svg>
+                            )}
+                            {downloadingPDF ? "Downloading..." : "Download PDF"}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    
+                    {/* Enhanced V1 Data Preview */}
+                    <div className="relative overflow-hidden rounded-xl bg-gradient-to-br from-slate-50 to-blue-50 border border-slate-200/50 p-6">
+                      <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-400/10 to-indigo-600/10 rounded-full blur-2xl"></div>
+                      <div className="relative">
+                        <div className="flex items-center gap-2 mb-3">
+                          <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          <h4 className="font-semibold text-slate-800">Content Preview</h4>
+                        </div>
+                        <p className="text-slate-700">
+                          V1 content available for editing
+                          {v1Data.isVerified && <span className="ml-2 text-green-600 font-semibold">(✓ Verified)</span>}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
               <div className="space-y-3">
-                {!canGenerateV1 && countdown > 0 ? (
+                {!canGenerateV1 ? (
                   <div className="flex items-center gap-3">
                     <div className="px-4 py-2 bg-gray-300 text-gray-500 rounded-md cursor-not-allowed flex items-center gap-2">
                       <div className="animate-pulse rounded-full h-4 w-4 bg-gray-400"></div>
@@ -328,21 +449,114 @@ export default function DocumentDetailsClient({ id }: Props) {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              {v1Data && permissions.canProcess ? (
-                <button
-                  onClick={generateV2}
-                  disabled={generatingV2}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 flex items-center gap-2"
-                >
-                  {generatingV2 && <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>}
-                  {generatingV2 ? "Generating V2..." : "Generate V2"}
-                </button>
-              ) : (
-                <p className="text-sm text-slate-600">
-                  {v1Data ? "V1 data ready for V2 generation" : "V1 data must be generated first"}
-                </p>
-              )}
+                  <div className="space-y-6">
+                    {!canGenerateV1 && countdown > 0 ? (
+                      <div className="flex items-center justify-center p-8 bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl border border-amber-200/50">
+                        <div className="text-center space-y-4">
+                          <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+                            <div className="animate-pulse text-2xl font-bold text-white">{countdown}</div>
+                          </div>
+                          <div>
+                            <h4 className="font-semibold text-amber-800 mb-1">Processing Document</h4>
+                            <p className="text-amber-700">Please wait {countdown} seconds before generating V1...</p>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center p-8 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-200/50">
+                        {/* <div className="text-center space-y-4">
+                          {permissions.canProcess && (
+                            <button
+                              onClick={generateV1}
+                              disabled={generatingV1}
+                              className="group px-8 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center gap-3 mx-auto"
+                            >
+                              {generatingV1 ? (
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                              ) : (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                              )}
+                              <span className="font-semibold">
+                                {generatingV1 ? "Generating V1..." : "Generate V1"}
+                              </span>
+                            </button>
+                          )}
+                          <p className="text-slate-600">
+                            {generatingV1 ? "Extracting data from document..." : "Click to extract data from document"}
+                          </p>
+                        </div> */}
+                      </div>
+                    )}
+                  </div>
+              
+              </div>
+            </div>
+
+            {/* Version 2 Enhanced Card */}
+            <div className="relative overflow-hidden rounded-2xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-xl">
+              <div className="absolute inset-0 bg-gradient-to-br from-green-50/50 to-emerald-50/50"></div>
+              <div className="relative p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center shadow-lg">
+                      <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h3 className="text-2xl font-bold text-slate-900">Version 2</h3>
+                      <p className="text-slate-600">Verified & Enhanced Data</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {generatingV2 && (
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-2 border-green-600 border-t-transparent"></div>
+                        <span className="text-sm text-green-600 font-medium">Processing...</span>
+                      </div>
+                    )}
+                    <div className="text-sm">
+                      {workflowChip(generatingV2 ? "PROCESSING" : "PENDING")}
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center justify-center p-8 bg-gradient-to-br from-slate-50 to-green-50 rounded-xl border border-slate-200/50">
+                  <div className="text-center space-y-4">
+                    {v1Data && v1Data.isVerified && permissions.canProcess ? (
+                      <button
+                        onClick={generateV2}
+                        disabled={generatingV2}
+                        className="group px-8 py-4 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-xl hover:from-green-700 hover:to-emerald-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center gap-3 mx-auto"
+                      >
+                        {generatingV2 ? (
+                          <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"></div>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                        )}
+                        <span className="font-semibold">
+                          {generatingV2 ? "Generating V2..." : "Generate V2"}
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-slate-300 to-slate-400 flex items-center justify-center">
+                          <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                          </svg>
+                        </div>
+                        <p className="text-slate-600 font-medium">
+                          {v1Data ? (v1Data.isVerified ? "V1 verified - Ready for V2" : "V1 must be verified first") : "V1 data must be generated first"}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>

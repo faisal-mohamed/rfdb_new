@@ -370,9 +370,7 @@ export default function DocumentsPage() {
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Type
                   </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                    Size
-                  </th>
+                  
                   <th className="px-6 py-4 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                     Uploaded
                   </th>
@@ -408,9 +406,7 @@ export default function DocumentsPage() {
                         {getFileTypeCategory(document.fileType)}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-slate-600">
-                      {formatFileSize(document.fileSize)}
-                    </td>
+                    
                     <td className="px-6 py-4 text-slate-600">
                       {new Date(document.uploadedDate).toLocaleDateString()}
                     </td>
