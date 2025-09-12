@@ -154,6 +154,8 @@ import { prisma } from '@/lib/prisma';
 import { getSimplePermissions } from '@/lib/simplePermissions';
 import { VersionType } from '@prisma/client';
 import { chromium } from 'playwright';
+import fs from 'fs';
+import path from 'path';
 
 export async function GET(
   request: NextRequest,
@@ -218,121 +220,22 @@ export async function GET(
 }
 
 function generateHTMLFromV1Data(v1Data: any): string {
-  const formatFieldName = (fieldName: string) => {
-    return fieldName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-  };
+  // Extract generated_data from the response structure
+  const extractedContent = v1Data?.["1"]?.extracted_content?.[0]?.fields?.[0]?.generated_data?.value;
+  
+  if (!extractedContent) {
+    return '<html><body><p>No generated data found</p></body></html>';
+  }
 
-  const renderFieldValue = (fieldData: any) => {
-    if (!fieldData || typeof fieldData !== 'object') {
-      return '<span style="color: #94a3b8; font-style: italic;">Not provided</span>';
-    }
-
-    const value = fieldData.value;
-    
-    if (!value || value === '') {
-      return '<span style="color: #94a3b8; font-style: italic;">Not provided</span>';
-    }
-    
-    if (typeof value === 'string') {
-      // Handle different types of line breaks and formatting
-      let processedText = value;
-      
-      // Replace literal \n with actual line breaks
-      processedText = processedText.replace(/\\n/g, '\n');
-      
-      // Split by actual newlines and filter out empty lines
-      const lines = processedText.split('\n').filter(line => line.trim() !== '');
-      
-      let htmlContent = '<div style="line-height: 1.6;">';
-      
-      lines.forEach(line => {
-        const trimmedLine = line.trim();
-        
-        // Check if line starts with bullet point
-        if (trimmedLine.startsWith('•') || trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
-          htmlContent += `
-            <div style="display: flex; align-items: flex-start; margin-bottom: 8px; margin-left: 16px;">
-              <span style="color: #2563eb; font-weight: bold; margin-right: 12px; flex-shrink: 0; margin-top: 2px;">•</span>
-              <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">
-                ${trimmedLine.substring(1).trim()}
-              </p>
-            </div>
-          `;
-        }
-        // Check if line is a section header (all caps and short)
-        else if (trimmedLine === trimmedLine.toUpperCase() && 
-                 trimmedLine.length < 100 && 
-                 trimmedLine.length > 3 &&
-                 !trimmedLine.includes('•') &&
-                 /^[A-Z\s&]+$/.test(trimmedLine)) {
-          htmlContent += `
-            <h4 style="
-              font-size: 16px; 
-              font-weight: bold; 
-              color: #1e293b; 
-              margin-top: 32px; 
-              margin-bottom: 16px; 
-              text-transform: uppercase; 
-              letter-spacing: 0.05em;
-              page-break-after: avoid;
-            ">
-              ${trimmedLine}
-            </h4>
-          `;
-        }
-        // Check if it's a section header with specific keywords
-        else if (trimmedLine.match(/^(Assumptions|Dependencies|Deliverables|Scope|Modules|Features|Security|Key Features|Functionalities)/i)) {
-          htmlContent += `
-            <h4 style="
-              font-size: 16px; 
-              font-weight: 600; 
-              color: #1f2937; 
-              margin-top: 24px; 
-              margin-bottom: 12px; 
-              border-left: 4px solid #2563eb; 
-              padding-left: 12px; 
-              background-color: #eff6ff; 
-              padding-top: 8px; 
-              padding-bottom: 8px;
-              page-break-after: avoid;
-            ">
-              ${trimmedLine}
-            </h4>
-          `;
-        }
-        // Check if it's a numbered or lettered list item
-        else if (trimmedLine.match(/^[\d\w]\.\s/)) {
-          htmlContent += `
-            <div style="margin-left: 16px; margin-bottom: 8px;">
-              <p style="margin: 0; color: #374151; font-size: 14px; font-weight: 500; line-height: 1.6;">
-                ${trimmedLine}
-              </p>
-            </div>
-          `;
-        }
-        // Regular paragraph
-        else {
-          htmlContent += `
-            <p style="margin-bottom: 12px; color: #374151; font-size: 14px; line-height: 1.6;">
-              ${trimmedLine}
-            </p>
-          `;
-        }
-      });
-      
-      htmlContent += '</div>';
-      return htmlContent;
-    }
-    
-    return `<span style="color: #374151; font-size: 14px;">${String(value)}</span>`;
-  };
-
+  // Parse the content into sections
+  const sections = parseGeneratedData(extractedContent);
+  
   let htmlContent = `
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="UTF-8">
-      <title>Extracted Document Content</title>
+      <title>Document Content</title>
       <style>
         body { 
           font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
@@ -358,27 +261,82 @@ function generateHTMLFromV1Data(v1Data: any): string {
           font-size: 16px;
           color: #64748b;
         }
-        .content-wrapper {
-          max-width: 100%;
-        }
-        .field-section { 
-          margin-bottom: 32px; 
+        .section {
+          margin-bottom: 32px;
           page-break-inside: avoid;
         }
-        .field-title { 
-          font-size: 18px; 
-          font-weight: 600; 
-          color: #1f2937; 
-          border-bottom: 2px solid #e2e8f0; 
-          padding-bottom: 8px; 
-          margin-bottom: 16px; 
+        .section-header {
+          font-size: 20px;
+          font-weight: bold;
+          color: #1e293b;
+          margin-bottom: 16px;
+          padding-bottom: 8px;
+          border-bottom: 2px solid #e2e8f0;
           page-break-after: avoid;
         }
-        .field-content { 
-          padding-left: 16px; 
+        .section-header.level-1 {
+          font-size: 22px;
+          color: #1e40af;
+        }
+        .section-header.level-2 {
+          font-size: 18px;
+          color: #059669;
+        }
+        .section-header.level-3 {
+          font-size: 16px;
+          color: #7c3aed;
+        }
+        .section-content {
+          margin-left: 16px;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 16px 0;
+          page-break-inside: avoid;
+        }
+        th, td {
+          border: 1px solid #d1d5db;
+          padding: 8px 12px;
+          text-align: left;
+          vertical-align: top;
+        }
+        th {
+          background-color: #f3f4f6;
+          font-weight: 600;
+          color: #374151;
+        }
+        tr:nth-child(even) {
+          background-color: #f9fafb;
+        }
+        .image-container {
+          margin: 16px 0;
+          text-align: center;
+          page-break-inside: avoid;
+        }
+        .image-container img {
+          max-width: 100%;
+          height: auto;
+          border: 1px solid #d1d5db;
+          border-radius: 4px;
+        }
+        p {
+          margin-bottom: 12px;
+          line-height: 1.6;
+        }
+        ul, ol {
+          margin: 12px 0;
+          padding-left: 24px;
+        }
+        li {
+          margin-bottom: 4px;
+          line-height: 1.5;
         }
         @media print {
-          .field-section {
+          .section {
+            page-break-inside: avoid;
+          }
+          .image-container {
             page-break-inside: avoid;
           }
         }
@@ -386,33 +344,290 @@ function generateHTMLFromV1Data(v1Data: any): string {
     </head>
     <body>
       <div class="header">
-        <h1 class="main-title">Extracted Document Content</h1>
+        <h1 class="main-title">Document Content</h1>
         <p class="subtitle">Extracted and Formatted Content</p>
       </div>
-      <div class="content-wrapper">
   `;
 
-  // Collect all fields from all pages and render them continuously
-  Object.entries(v1Data).forEach(([pageKey, pageData]: [string, any]) => {
-    pageData.extracted_content?.[0]?.fields?.forEach((fieldGroup: any) => {
-      Object.entries(fieldGroup).forEach(([fieldName, fieldData]) => {
-        htmlContent += `
-          <div class="field-section">
-            <h3 class="field-title">${formatFieldName(fieldName)}</h3>
-            <div class="field-content">
-              ${renderFieldValue(fieldData)}
+  // Render each section
+  sections.forEach(section => {
+    htmlContent += `
+      <div class="section">
+        <h${section.level} class="section-header level-${section.level}">
+          ${section.title}
+        </h${section.level}>
+        <div class="section-content">
+    `;
+
+    // Render images if present
+    if (section.images && section.images.length > 0) {
+      section.images.forEach(image => {
+        if (image.src) {
+          htmlContent += `
+            <div class="image-container">
+              <img src="${image.src}" alt="${image.alt || 'Document image'}" />
             </div>
-          </div>
-        `;
+          `;
+        } else {
+          htmlContent += `
+            <div class="image-container">
+              <div style="border: 2px dashed #d1d5db; padding: 20px; text-align: center; color: #6b7280; background-color: #f9fafb;">
+                <p>📷 ${image.alt}</p>
+              </div>
+            </div>
+          `;
+        }
       });
-    });
+    }
+
+    // Render table if present
+    if (section.type === 'table' && section.tableData) {
+      htmlContent += `
+        <table>
+          <thead>
+            <tr>
+              ${section.tableData.headers.map(header => `<th>${header}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${section.tableData.rows.map(row => 
+              `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`
+            ).join('')}
+          </tbody>
+        </table>
+      `;
+    } else {
+      // Render text content
+      const textContent = renderTextContent(section.content);
+      htmlContent += textContent;
+    }
+
+    htmlContent += `
+        </div>
+      </div>
+    `;
   });
 
   htmlContent += `
-      </div>
     </body>
     </html>
   `;
 
+  return htmlContent;
+}
+
+function parseGeneratedData(content: string): any[] {
+  const sections: any[] = [];
+  const lines = content.split('\n');
+  let currentSection: any = null;
+  let inHtmlTable = false;
+  let htmlTableLines: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+    
+    if (!trimmedLine) {
+      if (inHtmlTable && htmlTableLines.length > 0) {
+        if (currentSection) {
+          const tableData = parseHtmlTable(htmlTableLines.join('\n'));
+          if (tableData) {
+            currentSection.type = 'table';
+            currentSection.tableData = tableData;
+          }
+        }
+        inHtmlTable = false;
+        htmlTableLines = [];
+      }
+      continue;
+    }
+    
+    // Detect HTML table start
+    if (trimmedLine.includes('<table>')) {
+      inHtmlTable = true;
+      htmlTableLines = [line];
+      continue;
+    }
+    
+    // Continue collecting HTML table lines
+    if (inHtmlTable) {
+      htmlTableLines.push(line);
+      if (trimmedLine.includes('</table>')) {
+        if (currentSection) {
+          const tableData = parseHtmlTable(htmlTableLines.join('\n'));
+          if (tableData) {
+            currentSection.type = 'table';
+            currentSection.tableData = tableData;
+          }
+        }
+        inHtmlTable = false;
+        htmlTableLines = [];
+      }
+      continue;
+    }
+    
+    // Detect headers
+    if (trimmedLine.startsWith('**') && trimmedLine.endsWith('**') && trimmedLine.length > 4) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = {
+        title: trimmedLine.replace(/\*\*/g, ''),
+        content: '',
+        level: 1,
+        type: 'text'
+      };
+    } else if (trimmedLine.startsWith('# ')) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = {
+        title: trimmedLine.replace(/^# /, ''),
+        content: '',
+        level: 1,
+        type: 'text'
+      };
+    } else if (trimmedLine.startsWith('## ')) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = {
+        title: trimmedLine.replace(/^## /, ''),
+        content: '',
+        level: 2,
+        type: 'text'
+      };
+    } else if (trimmedLine.startsWith('### ')) {
+      if (currentSection) sections.push(currentSection);
+      currentSection = {
+        title: trimmedLine.replace(/^### /, ''),
+        content: '',
+        level: 3,
+        type: 'text'
+      };
+    } else {
+      if (!currentSection) {
+        currentSection = {
+          title: 'Introduction',
+          content: '',
+          level: 1,
+          type: 'text'
+        };
+      }
+      currentSection.content += (currentSection.content ? '\n' : '') + line;
+    }
+  }
+  
+  if (currentSection) sections.push(currentSection);
+  
+  // Parse images in each section
+  sections.forEach(section => {
+    const images = parseImages(section.content);
+    if (images.length > 0) {
+      section.images = images;
+      section.type = section.type === 'table' ? 'table' : 'mixed';
+    }
+  });
+  
+  return sections;
+}
+
+function parseHtmlTable(htmlContent: string): any {
+  try {
+    // Simple regex-based parsing for server-side
+    const headerMatch = htmlContent.match(/<thead>[\s\S]*?<\/thead>/i);
+    const bodyMatch = htmlContent.match(/<tbody>[\s\S]*?<\/tbody>/i);
+    
+    if (!headerMatch || !bodyMatch) return null;
+    
+    // Extract headers
+    const headerCells = headerMatch[0].match(/<th[^>]*>([\s\S]*?)<\/th>/gi) || [];
+    const headers = headerCells.map(cell => 
+      cell.replace(/<[^>]*>/g, '').trim().replace(/\s+/g, ' ')
+    );
+    
+    // Extract rows
+    const rowMatches = bodyMatch[0].match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || [];
+    const rows = rowMatches.map(row => {
+      const cellMatches = row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [];
+      return cellMatches.map(cell => 
+        cell.replace(/<[^>]*>/g, '').trim().replace(/\s+/g, ' ')
+      );
+    });
+    
+    return { headers, rows };
+  } catch (error) {
+    console.error('Error parsing HTML table:', error);
+    return null;
+  }
+}
+
+function parseImages(content: string): any[] {
+  const images: any[] = [];
+  const imgRegex = /<img[^>]*src="([^"]*)"[^>]*(?:alt="([^"]*)")?[^>]*\/?>/gi;
+  let match;
+  
+  while ((match = imgRegex.exec(content)) !== null) {
+    const src = match[1];
+    const alt = match[2] || '';
+    
+    try {
+      // Convert relative path to absolute file system path
+      let imagePath = src;
+      if (src.startsWith('./')) {
+        imagePath = path.join(process.cwd(), 'public', src.replace('./', '/'));
+      } else if (src.startsWith('/')) {
+        imagePath = path.join(process.cwd(), 'public', src);
+      }
+      
+      // Check if file exists and convert to base64
+      if (fs.existsSync(imagePath)) {
+        const imageBuffer = fs.readFileSync(imagePath);
+        const base64Image = imageBuffer.toString('base64');
+        const mimeType = getMimeType(imagePath);
+        const base64Src = `data:${mimeType};base64,${base64Image}`;
+        
+        images.push({ src: base64Src, alt });
+      } else {
+        console.warn(`Image not found: ${imagePath}`);
+        // Add placeholder or skip
+        images.push({ src: '', alt: `Image not found: ${src}` });
+      }
+    } catch (error) {
+      console.error(`Error processing image ${src}:`, error);
+      images.push({ src: '', alt: `Error loading image: ${src}` });
+    }
+  }
+  
+  return images;
+}
+
+function getMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  switch (ext) {
+    case '.png': return 'image/png';
+    case '.jpg':
+    case '.jpeg': return 'image/jpeg';
+    case '.gif': return 'image/gif';
+    case '.webp': return 'image/webp';
+    case '.svg': return 'image/svg+xml';
+    default: return 'image/png';
+  }
+}
+
+function renderTextContent(content: string): string {
+  // Remove img tags for text rendering
+  const cleanContent = content.replace(/<img[^>]*\/?>/gi, '');
+  
+  const lines = cleanContent.split('\n').filter(line => line.trim());
+  let htmlContent = '';
+  
+  lines.forEach(line => {
+    const trimmedLine = line.trim();
+    
+    if (trimmedLine.startsWith('•') || trimmedLine.startsWith('-') || trimmedLine.startsWith('*')) {
+      htmlContent += `<li>${trimmedLine.substring(1).trim()}</li>`;
+    } else {
+      htmlContent += `<p>${trimmedLine}</p>`;
+    }
+  });
+  
+  // Wrap consecutive list items in ul tags
+  htmlContent = htmlContent.replace(/(<li>.*?<\/li>)+/g, '<ul>$&</ul>');
+  
   return htmlContent;
 }
