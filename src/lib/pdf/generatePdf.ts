@@ -17,8 +17,17 @@ export async function generatePdfFromHtml(html: string, filenameBase: string): P
       path: filePath,
       format: 'A4',
       printBackground: true,
-      margin: { top: '40px', bottom: '48px', left: '24px', right: '24px' },
-      displayHeaderFooter: false,
+      margin: { top: '0.75in', bottom: '1in', left: '0.75in', right: '0.75in' },
+      displayHeaderFooter: true,
+      headerTemplate: '<div></div>',
+      footerTemplate: `
+        <div style="width: 100%; font-size: 9pt; padding: 0 0.75in; text-align: center; color: #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+          <div style="border-top: 1px solid #cccccc; padding-top: 8pt;">
+            <span style="font-weight: 400;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+          </div>
+        </div>
+      `,
+      preferCSSPageSize: true,
     });
 
     return `/generated/${filenameBase}.pdf`;
@@ -36,8 +45,17 @@ export async function generatePdfBufferFromHtml(html: string): Promise<Buffer> {
     const buffer = await page.pdf({
       format: 'A4',
       printBackground: true,
-      margin: { top: '40px', bottom: '48px', left: '24px', right: '24px' },
-      displayHeaderFooter: false,
+      margin: { top: '0.75in', bottom: '1in', left: '0.75in', right: '0.75in' },
+      displayHeaderFooter: true,
+      headerTemplate: '<div></div>',
+      footerTemplate: `
+        <div style="width: 100%; font-size: 9pt; padding: 0 0.75in; text-align: center; color: #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+          <div style="border-top: 1px solid #cccccc; padding-top: 8pt;">
+            <span style="font-weight: 400;">Page <span class="pageNumber"></span> of <span class="totalPages"></span></span>
+          </div>
+        </div>
+      `,
+      preferCSSPageSize: true,
     });
     return buffer as Buffer;
   } finally {

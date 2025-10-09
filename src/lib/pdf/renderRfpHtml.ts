@@ -46,35 +46,157 @@ export function renderRfpHtml({ title, customerName, generatedAt = new Date(), d
   const content = renderTree(data, 2);
   const generated = generatedAt.toLocaleString();
 
-  // Basic, print-friendly styles; tune later for brand
+  // Professional, print-ready styles
   return `<!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
-      :root {
-        --text: #0f172a;
-        --muted: #475569;
-        --border: #e2e8f0;
-        --accent: #ec4899;
-        --accent2: #ef4444;
+      /* Page setup */
+      @page {
+        size: A4 portrait;
+        margin: 0.75in 0.75in 1in 0.75in;
       }
-      * { box-sizing: border-box; }
-      html, body { margin: 0; padding: 0; }
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji'; color: var(--text); }
-      .page { padding: 24px; }
-      .title { font-size: 24px; font-weight: 800; margin: 0 0 4px; }
-      .subtitle { color: var(--muted); font-size: 12px; margin: 0 0 24px; }
-      .rfp-heading { margin: 16px 0 8px; color: var(--text); }
-      .rfp-heading.level-2 { font-size: 16px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-      .rfp-heading.level-3 { font-size: 14px; }
-      .rfp-heading.level-4 { font-size: 13px; }
-      .rfp-section { margin-bottom: 12px; }
-      .rfp-leaf { padding: 8px 0 12px; border-bottom: 1px dashed var(--border); }
-      .rfp-leaf-body { white-space: pre-wrap; line-height: 1.5; font-size: 12px; }
-      .rfp-pages { margin-top: 8px; font-size: 11px; color: var(--muted); }
-      .header, .footer { font-size: 10px; color: var(--muted); }
+      
+      /* Reset and base styles */
+      * { 
+        box-sizing: border-box; 
+        margin: 0; 
+        padding: 0; 
+      }
+      
+      html {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+      
+      html, body { 
+        margin: 0; 
+        padding: 0; 
+      }
+      
+      body { 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+        color: #1a1a1a;
+        font-size: 11pt;
+        line-height: 1.6;
+        background: #ffffff;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+      }
+      
+      .page { 
+        padding: 0; 
+        max-width: 100%;
+      }
+      
+      /* Document header */
+      .title { 
+        font-size: 20pt; 
+        font-weight: 700; 
+        margin: 0 0 6pt; 
+        color: #000000;
+        border-bottom: 2pt solid #1a1a1a;
+        padding-bottom: 10pt;
+      }
+      
+      .subtitle { 
+        color: #666666; 
+        font-size: 10pt; 
+        margin: 0 0 24pt; 
+        font-weight: 400;
+      }
+      
+      /* RFP Headings */
+      .rfp-heading { 
+        margin: 18pt 0 10pt; 
+        color: #1a1a1a;
+        font-weight: 600;
+        page-break-after: avoid;
+        page-break-inside: avoid;
+      }
+      
+      .rfp-heading.level-2 { 
+        font-size: 15pt; 
+        border-bottom: 1.5pt solid #666666; 
+        padding-bottom: 6pt;
+        font-weight: 700;
+      }
+      
+      .rfp-heading.level-3 { 
+        font-size: 13pt;
+        font-weight: 600;
+      }
+      
+      .rfp-heading.level-4 { 
+        font-size: 12pt;
+        font-weight: 600;
+      }
+      
+      .rfp-heading.level-5 { 
+        font-size: 11pt;
+        font-weight: 600;
+        color: #333333;
+      }
+      
+      .rfp-heading.level-6 { 
+        font-size: 11pt;
+        font-weight: 600;
+        color: #333333;
+      }
+      
+      /* Sections */
+      .rfp-section { 
+        margin-bottom: 18pt;
+      }
+      
+      /* Leaf content */
+      .rfp-leaf { 
+        padding: 10pt 0 14pt; 
+        border-bottom: 1pt dashed #cccccc;
+        page-break-inside: avoid;
+      }
+      
+      .rfp-leaf-body { 
+        white-space: pre-wrap; 
+        line-height: 1.6; 
+        font-size: 11pt;
+        color: #1a1a1a;
+        margin-bottom: 8pt;
+      }
+      
+      .rfp-pages { 
+        margin-top: 8pt; 
+        font-size: 9pt; 
+        color: #666666;
+        font-style: italic;
+      }
+      
+      /* Print optimization */
+      @media print {
+        body {
+          font-size: 11pt;
+          color: #1a1a1a;
+        }
+        
+        .rfp-heading {
+          page-break-after: avoid;
+        }
+        
+        .rfp-leaf {
+          page-break-inside: avoid;
+        }
+        
+        .rfp-section {
+          page-break-inside: avoid;
+        }
+        
+        * {
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+      }
     </style>
   </head>
   <body>
