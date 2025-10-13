@@ -653,7 +653,7 @@ function generateHTMLFromV1Data(v1Data: any): string {
           margin: 18pt auto;
           display: block;
           page-break-inside: avoid;
-          border: 0.5pt solid #cccccc;
+          // border: 1.5pt solid #999999;
           border-radius: 0;
         }
         
@@ -732,7 +732,7 @@ function generateHTMLFromV1Data(v1Data: any): string {
         img[style*="width:1."] {
           max-width: 140pt;
           margin: 14pt auto;
-          border: 0.5pt solid #cccccc;
+          // border: 1.5pt solid #999999;
         }
         
         /* Medium images (2-4 inches) */
@@ -741,7 +741,7 @@ function generateHTMLFromV1Data(v1Data: any): string {
         img[style*="width:4."] {
           max-width: 65%;
           margin: 18pt auto;
-          border: 0.5pt solid #cccccc;
+          // border: 1.5pt solid #999999;
         }
         
         /* Large images (4-6 inches) */
@@ -749,7 +749,7 @@ function generateHTMLFromV1Data(v1Data: any): string {
         img[style*="width:6."] {
           max-width: 85%;
           margin: 20pt auto;
-          border: 0.75pt solid #cccccc;
+          // border: 2pt solid #999999;
         }
         
         /* Full-width diagrams (> 6 inches) */
@@ -759,7 +759,7 @@ function generateHTMLFromV1Data(v1Data: any): string {
           max-width: 100%;
           margin: 24pt auto;
           page-break-before: auto;
-          border: 0.75pt solid #000000;
+          // border: 2pt solid #000000;
         }
         
         /* Screenshot images - preserve quality */
@@ -767,7 +767,7 @@ function generateHTMLFromV1Data(v1Data: any): string {
         img[alt*="Screenshot"],
         img[alt*="Description automatically generated"] {
           max-width: 95%;
-          border: 0.75pt solid #999999;
+          // border: 2pt solid #666666;
         }
         
         /* Image container */

@@ -1,0 +1,63 @@
+// V1 Word Document Download API
+// Generates Word document with exact PDF styling
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth-config';
+import { prisma } from '@/lib/prisma';
+import { getSimplePermissions } from '@/lib/simplePermissions';
+import { VersionType } from '@prisma/client';
+import { generateV1WordDocument } from '@/lib/docx/generateWordDocument';
+
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: processId } = await context.params;
+    const session = await getServerSession(authOptions);
+
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const permissions = getSimplePermissions(session.user.role);
+    if (!permissions.canView) {
+      return NextResponse.json({ error: 'You do not have permission to download documents' }, { status: 403 });
+    }
+
+    // Get V1 data from database - same as PDF route
+    const v1Version = await prisma.documentVersion.findFirst({
+      where: {
+        documentId: processId,
+        versionType: VersionType.VERSION_1,
+        status: 'APPROVED',
+      },
+      orderBy: { versionNumber: 'desc' },
+    });
+
+    if (!v1Version) {
+      return NextResponse.json({ error: 'Approved V1 not found' }, { status: 404 });
+    }
+
+    // Generate Word document with exact PDF styling
+    const docxBuffer = await generateV1WordDocument(v1Version.jsonContent);
+    
+    // Return Word document as response
+    return new NextResponse(new Uint8Array(docxBuffer), {
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'Content-Disposition': `attachment; filename="V1-Document-${processId}.docx"`,
+        'Cache-Control': 'no-store',
+      },
+    });
+
+  } catch (error) {
+    console.error('Error generating Word document:', error);
+    return NextResponse.json({ 
+      error: 'Failed to generate Word document',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
+  }
+}
+

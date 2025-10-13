@@ -516,6 +516,7 @@ export default function DocumentDetailsClient({ id }: Props) {
   const [generatingV1, setGeneratingV1] = useState(false);
   const [generatingV2, setGeneratingV2] = useState(false);
   const [downloadingPDF, setDownloadingPDF] = useState(false);
+  const [downloadingWord, setDownloadingWord] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
   const permissions = getSimplePermissions(session?.user?.role || "VIEWER");
 
@@ -645,6 +646,36 @@ export default function DocumentDetailsClient({ id }: Props) {
       showToast({ variant: "error", message: "Error downloading PDF" });
     } finally {
       setDownloadingPDF(false);
+    }
+  };
+
+  const downloadV1Word = async () => {
+    setDownloadingWord(true);
+    try {
+      const response = await fetch(`/api/documents/${id}/download-v1-docx`);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `V1-Document-${id}.docx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        showToast({ variant: "success", message: "Word document downloaded successfully!" });
+      } else {
+        const error = await response.json();
+        showToast({
+          variant: "error",
+          message: error.error || "Failed to download Word document",
+        });
+      }
+    } catch (error) {
+      console.error("Error downloading Word:", error);
+      showToast({ variant: "error", message: "Error downloading Word document" });
+    } finally {
+      setDownloadingWord(false);
     }
   };
 
@@ -976,6 +1007,30 @@ export default function DocumentDetailsClient({ id }: Props) {
                               </svg>
                             )}
                             {downloadingPDF ? "Downloading..." : "Download PDF"}
+                          </button>
+                          <button
+                            onClick={downloadV1Word}
+                            disabled={downloadingWord}
+                            className="group px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 flex items-center gap-2"
+                          >
+                            {downloadingWord ? (
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                            ) : (
+                              <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                stroke="currentColor"
+                                viewBox="0 0 24 24"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                />
+                              </svg>
+                            )}
+                            {downloadingWord ? "Downloading..." : "Download Word"}
                           </button>
                         </>
                       )}
