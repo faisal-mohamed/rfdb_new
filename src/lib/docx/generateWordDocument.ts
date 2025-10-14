@@ -599,7 +599,7 @@ async function createTable(tableData: { headerRows?: CellData[][]; headers?: str
       
       // For data rows, NEVER apply colspan - every cell should be individual
       // This ensures all empty cells in week columns render with borders
-      let colspan = 1;
+      const colspan = 1;
       skipNext = 0;
       
       console.log(`  Processing cell ${i}: "${cellData.text || ''}" (colspan=${colspan})`);

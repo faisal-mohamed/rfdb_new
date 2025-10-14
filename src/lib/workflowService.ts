@@ -154,19 +154,27 @@ export class WorkflowService {
           documentId,
           versionType: VersionType.VERSION_1,
           status: VersionStatus.COMPLETED
-        },
-        include: { document: true }
+        }
       });
 
       if (!v1Version) {
         throw new Error('Version 1 not found or not completed');
       }
 
+      // Get the document separately (no relation exists)
+      const document = await prisma.document.findUnique({
+        where: { id: documentId }
+      });
+
+      if (!document) {
+        throw new Error('Document not found');
+      }
+
       // Call external API for V2 processing
       const apiResponse = await MockExternalApiService.processDocumentV2({
         documentId,
-        fileContent: v1Version.document.fileContent,
-        fileName: v1Version.document.fileName,
+        fileContent: document.fileContent,
+        fileName: document.fileName,
         versionType: VersionType.VERSION_2,
         v1Json: v1Version.jsonContent as any
       });
@@ -299,22 +307,29 @@ export class WorkflowService {
   static async generateWordDocument(documentId: string, versionId: string, userId: string) {
     // Fetch the V2 version to render
     const v2 = await prisma.documentVersion.findUnique({
-      where: { id: versionId },
-      include: { document: true }
+      where: { id: versionId }
     });
     if (!v2 || v2.versionType !== 'VERSION_2') {
       throw new Error('V2 version not found');
     }
 
+    // Fetch the document separately (no relation exists)
+    const document = await prisma.document.findUnique({
+      where: { id: documentId }
+    });
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
     const html = renderRfpHtml({
-      title: v2.document.fileName,
-      customerName: v2.document.customerName,
+      title: document.fileName,
+      customerName: document.customerName,
       generatedAt: new Date(),
       data: v2.jsonContent as any,
     });
 
     const buffer = await generatePdfBufferFromHtml(html);
-    const safeName = v2.document.fileName.replace(/[^a-zA-Z0-9_.-]+/g, '_');
+    const safeName = document.fileName.replace(/[^a-zA-Z0-9_.-]+/g, '_');
     const fileName = `${safeName.replace(/\.[^.]+$/, '')}_v2.pdf`;
 
     // Mark workflow as completed; do not store file on server
@@ -332,7 +347,7 @@ export class WorkflowService {
 
   // Get document with all versions
   static async getDocumentWithVersions(documentId: string) {
-    return await prisma.document.findUnique({
+    const document = await prisma.document.findUnique({
       where: { id: documentId },
       include: {
         uploader: {
@@ -342,41 +357,53 @@ export class WorkflowService {
             lastName: true,
             email: true
           }
-        },
-        versions: {
-          include: {
-            creator: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            },
-            editor: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            },
-            approver: {
-              select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                email: true
-              }
-            }
-          },
-          orderBy: [
-            { versionType: 'asc' },
-            { versionNumber: 'desc' }
-          ]
         }
       }
     });
+
+    if (!document) {
+      return null;
+    }
+
+    // Fetch versions separately (no relation exists in schema)
+    const versions = await prisma.documentVersion.findMany({
+      where: { documentId },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        editor: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        },
+        approver: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true
+          }
+        }
+      },
+      orderBy: [
+        { versionType: 'asc' },
+        { versionNumber: 'desc' }
+      ]
+    });
+
+    return {
+      ...document,
+      versions
+    };
   }
 
   // Get latest version of specific type

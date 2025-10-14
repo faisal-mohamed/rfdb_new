@@ -1030,7 +1030,7 @@ function convertMarkdownTableToHtml(tableLines: string[]): string {
   
   for (let i = 0; i < tableLines.length; i++) {
     const line = tableLines[i];
-    let cells = line.split('|').map(cell => cell.trim()).filter((_, idx, arr) => idx !== 0 && idx !== arr.length - 1);
+    const cells = line.split('|').map(cell => cell.trim()).filter((_, idx, arr) => idx !== 0 && idx !== arr.length - 1);
     
     if (i === 1 && cells.every(cell => /^[-:\s]+$/.test(cell))) {
       isSeparatorRow = true;

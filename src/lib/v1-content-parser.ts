@@ -633,7 +633,7 @@ export function parseInlineFormatting(text: string): TextPart[] {
   
   // Parse the text with markdown formatting
   let remaining = cleanText;
-  let currentPos = 0;
+  const currentPos = 0;
   
   while (remaining.length > 0) {
     // Check for bold text: **text**

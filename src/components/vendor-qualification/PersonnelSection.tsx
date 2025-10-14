@@ -156,7 +156,7 @@ export default function PersonnelSection({ data, updateData }: Props) {
           </table>
         </div>
 
-        {calculateTotal() !== data.totalEmployees && data.totalEmployees > 0 && (
+        {calculateTotal() !== data.totalEmployees && data.totalEmployees !== undefined && data.totalEmployees > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
             ⚠️ The sum of team members ({calculateTotal()}) should equal the total number of employees ({data.totalEmployees}).
           </div>

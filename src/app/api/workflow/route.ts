@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
         }
         {
           const { buffer, fileName } = await WorkflowService.generateWordDocument(documentId, versionId, userId);
-          return new NextResponse(buffer, {
+          return new NextResponse(buffer as BodyInit, {
             status: 200,
             headers: {
               'Content-Type': 'application/pdf',

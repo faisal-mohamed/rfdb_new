@@ -5,7 +5,7 @@ import { getSimplePermissions } from '@/lib/simplePermissions';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -19,7 +19,7 @@ export async function POST(
       return NextResponse.json({ error: 'You do not have permission to save documents' }, { status: 403 });
     }
 
-    const processId = params.id;
+    const { id: processId } = await params;
     const body = await request.json();
     const { extracted_content } = body;
 

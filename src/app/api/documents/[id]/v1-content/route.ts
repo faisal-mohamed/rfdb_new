@@ -57,7 +57,7 @@ export async function GET(
 // PUT - Save V1 changes to database
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await getServerSession(authOptions);
@@ -71,7 +71,7 @@ export async function PUT(
       return NextResponse.json({ error: 'You do not have permission to edit documents' }, { status: 403 });
     }
 
-    const processId = params.id;
+    const { id: processId } = await params;
     const body = await request.json();
     const { content } = body;
 
