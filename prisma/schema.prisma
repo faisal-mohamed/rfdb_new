@@ -184,4 +184,137 @@ model User {
   createdVersions DocumentVersion[] @relation("VersionCreatedBy")
   editedVersions  DocumentVersion[] @relation("VersionEditedBy")
   approvedVersions DocumentVersion[] @relation("VersionApprovedBy")
+  
+  // Vendor Qualification relations
+  vendorQualifications VendorQualification[] @relation("VendorQualificationSubmitter")
+}
+
+enum VendorQualificationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+// Vendor Qualification Main Model
+model VendorQualification {
+  id                    String                     @id @default(cuid())
+  
+  // General Information
+  organizationName      String
+  incorporationDate     DateTime
+  postalAddress         String                     @db.Text
+  telephone             String
+  email                 String
+  registeredOfficeLocation String                  @db.Text
+  bankersInfo           String
+  insurersInfo          String
+  businessDescription   String                     @db.Text
+  companyAuditors       String
+  mainBusinessActivity  String
+  
+  // Banking Details
+  bankName              String
+  accountNumber         String
+  branch                String
+  authorizedSignatories String[]                   // Array of signatory names
+  
+  // Contact Person Details
+  contactPersonName     String
+  contactPersonEmail    String
+  contactPersonPhone    String
+  
+  // Employee Strength
+  totalEmployees        Int
+  managementTeam        Int
+  technicalTeam         Int
+  nonTechnicalTeam      Int
+  
+  // Status and Workflow
+  status                VendorQualificationStatus  @default(DRAFT)
+  
+  // Optional link to RFP document
+  documentId            String?
+  
+  // Audit fields
+  submittedBy           String
+  submittedAt           DateTime?
+  reviewedBy            String?
+  reviewedAt            DateTime?
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+  
+  // Relations
+  submitter             User                       @relation("VendorQualificationSubmitter", fields: [submittedBy], references: [id])
+  directors             VendorDirector[]
+  references            VendorReference[]
+  personnel             VendorPersonnel[]
+  documents             VendorDocument[]
+  
+  @@index([organizationName])
+  @@index([status])
+  @@index([submittedBy])
+  @@index([documentId])
+}
+
+// Directors Table
+model VendorDirector {
+  id                      String              @id @default(cuid())
+  vendorQualificationId   String
+  name                    String
+  position                String?
+  contact                 String?
+  
+  vendor                  VendorQualification @relation(fields: [vendorQualificationId], references: [id], onDelete: Cascade)
+  
+  @@index([vendorQualificationId])
+}
+
+// Bank References Table
+model VendorReference {
+  id                      String              @id @default(cuid())
+  vendorQualificationId   String
+  serialNumber            Int
+  bankName                String
+  contactPerson           String
+  contactDetails          String              @db.Text
+  referenceLetterPath     String?
+  
+  vendor                  VendorQualification @relation(fields: [vendorQualificationId], references: [id], onDelete: Cascade)
+  
+  @@index([vendorQualificationId])
+}
+
+// Key Personnel Table
+model VendorPersonnel {
+  id                      String              @id @default(cuid())
+  vendorQualificationId   String
+  name                    String
+  qualification           String
+  experience              String
+  role                    String
+  cvFilePath              String?
+  cvContent               String?             @db.Text
+  
+  vendor                  VendorQualification @relation(fields: [vendorQualificationId], references: [id], onDelete: Cascade)
+  
+  @@index([vendorQualificationId])
+}
+
+// Document Storage for all uploaded files
+model VendorDocument {
+  id                      String              @id @default(cuid())
+  vendorQualificationId   String
+  documentType            String              // Category: 'business_continuity', 'audited_accounts', 'incorporation_cert', etc.
+  fileName                String
+  fileContent             String              @db.Text // Base64 encoded
+  fileSize                Int
+  mimeType                String
+  uploadedAt              DateTime            @default(now())
+  
+  vendor                  VendorQualification @relation(fields: [vendorQualificationId], references: [id], onDelete: Cascade)
+  
+  @@index([vendorQualificationId])
+  @@index([documentType])
 }
