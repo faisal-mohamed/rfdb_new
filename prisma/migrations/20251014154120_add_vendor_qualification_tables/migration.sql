@@ -132,3 +132,9 @@ ALTER TABLE "public"."VendorPersonnel" ADD CONSTRAINT "VendorPersonnel_vendorQua
 -- AddForeignKey
 ALTER TABLE "public"."VendorDocument" ADD CONSTRAINT "VendorDocument_vendorQualificationId_fkey" FOREIGN KEY ("vendorQualificationId") REFERENCES "public"."VendorQualification"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+
+
+
+
+
+

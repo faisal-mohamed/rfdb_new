@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { apiGet } from "@/lib/api";
 import { WorkflowStatus } from '@/types/workflow';
 import WorkflowStatusBadge from './WorkflowStatusBadge';
 
@@ -20,7 +21,7 @@ export default function WorkflowDashboard() {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/workflow/stats');
+      const response = await apiGet('/api/workflow/stats');
       const result = await response.json();
       
       if (result.success) {

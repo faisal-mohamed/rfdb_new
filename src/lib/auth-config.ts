@@ -108,8 +108,9 @@ export const authOptions: NextAuthOptions = {
   },
 
   pages: {
-    signIn: "/login",
-    error: "/login",
+    signIn: "/rfp/login",
+    signOut: "/rfp/login",
+    error: "/rfp/login",
   },
   
   secret: process.env.NEXTAUTH_SECRET,

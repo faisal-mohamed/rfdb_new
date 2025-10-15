@@ -8,6 +8,7 @@ import JsonEditor from '@/components/JsonEditor';
 import WorkflowStatusBadge from '@/components/WorkflowStatusBadge';
 import { DocumentWithWorkflow, VersionType, WorkflowStatus } from '@/types/workflow';
 import { getSimplePermissions } from '@/lib/simplePermissions';
+import { apiPost } from "@/lib/api";
 
 export default function DocumentApprovePage() {
   const params = useParams();
@@ -59,16 +60,10 @@ export default function DocumentApprovePage() {
 
     setProcessing(true);
     try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'approve',
-          documentId,
-          versionId: v2Version.id,
-        }),
+      const response = await apiPost('/api/workflow', {
+        action: 'approve',
+        documentId,
+        versionId: v2Version.id,
       });
 
       const result = await response.json();
@@ -95,16 +90,10 @@ export default function DocumentApprovePage() {
 
     setProcessing(true);
     try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          action: 'generate_document',
-          documentId,
-          versionId: v2Version.id,
-        }),
+      const response = await apiPost('/api/workflow', {
+        action: 'generate_document',
+        documentId,
+        versionId: v2Version.id,
       });
 
       const result = await response.json();

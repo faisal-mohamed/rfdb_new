@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { VendorQualificationFormData, VendorQualificationStatus } from "@/types/vendor";
+import { apiPost, apiPut } from "@/lib/api";
 
 // Import form sections (we'll create these next)
 import GeneralInfoSection from "@/components/vendor-qualification/GeneralInfoSection";
@@ -82,11 +83,9 @@ export default function VendorQualificationPage() {
       
       const method = qualificationId ? 'PUT' : 'POST';
 
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
-      });
+      const response = qualificationId 
+        ? await apiPut(`/api/vendor-qualification/${qualificationId}`, formData)
+        : await apiPost('/api/vendor-qualification', formData);
 
       if (response.ok) {
         const data = await response.json();
@@ -134,9 +133,7 @@ export default function VendorQualificationPage() {
 
     setIsSubmitting(true);
     try {
-      const response = await fetch(`/api/vendor-qualification/${qualificationId}/submit`, {
-        method: 'POST',
-      });
+      const response = await apiPost(`/api/vendor-qualification/${qualificationId}/submit`);
 
       if (response.ok) {
         alert('Vendor qualification submitted successfully!');

@@ -649,6 +649,7 @@ import { useSession } from "next-auth/react";
 import { getSimplePermissions } from "@/lib/simplePermissions";
 import { useToast } from "@/components/ui/Toast";
 import Link from "next/link";
+import { apiGet, apiPut } from "@/lib/api";
 
 interface ParsedSection {
   title: string;
@@ -681,7 +682,7 @@ export default function V1EditorPage({
 
   const loadV1Data = async () => {
     try {
-      const response = await fetch(`/api/documents/${id}/v1-content`);
+      const response = await apiGet(`/api/documents/${id}/v1-content`);
       if (response.ok) {
         const data = await response.json();
         setV1Data(data);
@@ -875,7 +876,7 @@ export default function V1EditorPage({
       const alt = match[2] || "";
       const style = match[3] || "";
 
-      const publicSrc = src.startsWith("./") ? src.replace("./", "/") : src;
+      const publicSrc = src.startsWith("./") ? `/rfp${src.replace("./", "/")}` : `/rfp${src}`;
 
       images.push({ src: publicSrc, alt, style });
     }
@@ -991,11 +992,7 @@ export default function V1EditorPage({
           reconstructedContent;
       }
 
-      const response = await fetch(`/api/documents/${id}/v1-content`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: updatedData }),
-      });
+      const response = await apiPut(`/api/documents/${id}/v1-content`, { content: updatedData });
 
       if (response.ok) {
         showToast({

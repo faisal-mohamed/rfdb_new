@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { UserRole } from "@prisma/client";
+import { apiPost } from "@/lib/api";
 
 interface User {
   id: string;
@@ -81,11 +82,7 @@ export default function EditUserModal({ isOpen, user, onClose, onUserUpdated }: 
   const generatePassword = async () => {
     setIsGeneratingPassword(true);
     try {
-      const response = await fetch('/api/users/generate-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ length: 12 })
-      });
+      const response = await apiPost('/api/users/generate-password', { length: 12 });
 
       if (response.ok) {
         const { password } = await response.json();

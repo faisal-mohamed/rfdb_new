@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Document, DocumentStats, DocumentFilters, DocumentStatus } from "@/types/document";
 import { canViewDocuments, canUploadDocuments, canDeleteDocuments, mapPrismaRoleToRole } from "@/lib/permissions";
 import { formatFileSize, getFileIcon, getFileTypeCategory } from "@/lib/file-utils";
+import { apiGet, apiDelete } from "@/lib/api";
 
 type Pagination = {
   page: number;
@@ -64,7 +65,7 @@ export default function DocumentsPage() {
         ...(filters.sortOrder && { sortOrder: filters.sortOrder })
       });
 
-      const response = await fetch(`/api/documents?${params}`);
+      const response = await apiGet(`/api/documents?${params}`);
       if (response.ok) {
         const data = await response.json();
         setDocuments(data.documents);
@@ -85,7 +86,7 @@ export default function DocumentsPage() {
     if (!canView) return;
     
     try {
-      const response = await fetch('/api/documents/stats');
+      const response = await apiGet('/api/documents/stats');
       if (response.ok) {
         const data = await response.json();
         setStats(data);
@@ -98,7 +99,7 @@ export default function DocumentsPage() {
   // Handle document download
   const handleDownload = async (documentId: string, fileName: string) => {
     try {
-      const response = await fetch(`/api/documents/${documentId}/download`);
+      const response = await apiGet(`/api/documents/${documentId}/download`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -124,9 +125,7 @@ export default function DocumentsPage() {
     if (!confirm('Are you sure you want to delete this document?')) return;
     
     try {
-      const response = await fetch(`/api/documents/${documentId}`, {
-        method: 'DELETE'
-      });
+      const response = await apiDelete(`/api/documents/${documentId}`);
 
       if (response.ok) {
         await fetchDocuments();

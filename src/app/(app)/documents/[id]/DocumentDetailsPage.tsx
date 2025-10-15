@@ -504,6 +504,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { getSimplePermissions } from "@/lib/simplePermissions";
 import { useToast } from "@/components/ui/Toast";
+import { apiGet, apiPost } from "@/lib/api";
 
 type Props = { id: string };
 
@@ -534,7 +535,7 @@ export default function DocumentDetailsClient({ id }: Props) {
 
   const loadDocumentData = async () => {
     try {
-      const response = await fetch(`/api/documents/${id}`);
+      const response = await apiGet(`/api/documents/${id}`);
       if (response.ok) {
         const docData = await response.json();
         setDoc(docData);
@@ -549,12 +550,12 @@ export default function DocumentDetailsClient({ id }: Props) {
 
   const loadV1Data = async () => {
     try {
-      const response = await fetch(`/api/documents/${id}/v1-content`);
+      const response = await apiGet(`/api/documents/${id}/v1-content`);
       if (response.ok) {
         const data = await response.json();
         setV1Data(data);
 
-        const versionResponse = await fetch(`/api/documents/${id}/v1-status`);
+        const versionResponse = await apiGet(`/api/documents/${id}/v1-status`);
         if (versionResponse.ok) {
           const versionData = await versionResponse.json();
           if (versionData.status === "APPROVED") {
@@ -570,10 +571,7 @@ export default function DocumentDetailsClient({ id }: Props) {
   const generateV1 = async () => {
     setGeneratingV1(true);
     try {
-      const response = await fetch(`/api/documents/${id}/generate-v1`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const response = await apiPost(`/api/documents/${id}/generate-v1`);
 
       if (response.ok) {
         showToast({ variant: "success", message: "V1 generated successfully!" });
@@ -596,10 +594,7 @@ export default function DocumentDetailsClient({ id }: Props) {
   const generateV2 = async () => {
     setGeneratingV2(true);
     try {
-      const response = await fetch(`/api/documents/${id}/generate-v2`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const response = await apiPost(`/api/documents/${id}/generate-v2`);
 
       if (response.ok) {
         showToast({ variant: "success", message: "V2 generated successfully!" });
@@ -622,7 +617,7 @@ export default function DocumentDetailsClient({ id }: Props) {
   const downloadV1PDF = async () => {
     setDownloadingPDF(true);
     try {
-      const response = await fetch(`/api/documents/${id}/download-v1-pdf`);
+      const response = await apiGet(`/api/documents/${id}/download-v1-pdf`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -652,7 +647,7 @@ export default function DocumentDetailsClient({ id }: Props) {
   const downloadV1Word = async () => {
     setDownloadingWord(true);
     try {
-      const response = await fetch(`/api/documents/${id}/download-v1-docx`);
+      const response = await apiGet(`/api/documents/${id}/download-v1-docx`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);

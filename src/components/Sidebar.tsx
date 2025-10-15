@@ -12,7 +12,7 @@ type SidebarProps = {
 export default function Sidebar({ isOpen, onClose }: SidebarProps) {
   const { data: session } = useSession();
   const handleLogout = useCallback(() => {
-    signOut({ callbackUrl: "/login" });
+    signOut({ callbackUrl: "/rfp/login" });
   }, []);
 
   const isAdmin = session?.user?.userType === 'ADMIN';

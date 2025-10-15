@@ -7,6 +7,7 @@ import { useSession } from 'next-auth/react';
 import { Document } from '@/types/document';
 import { getSimplePermissions } from '@/lib/simplePermissions';
 import WorkflowStatusBadge from './WorkflowStatusBadge';
+import { apiGet } from '@/lib/api';
 
 interface DocumentTableProps {
   documents: Document[];
@@ -57,7 +58,7 @@ export default function DocumentTable({ documents, onRefresh }: DocumentTablePro
 
   const downloadDocument = async (documentId: string, fileName: string) => {
     try {
-      const response = await fetch(`/api/documents/${documentId}/download`);
+      const response = await apiGet(`/api/documents/${documentId}/download`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);

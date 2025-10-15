@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import EditUserModal from "@/components/EditUserModal";
 import UserTable from "@/components/UserTable";
 import { UserRole } from "@prisma/client";
+import { apiGet } from "@/lib/api";
 
 interface User {
   id: string;
@@ -87,7 +88,7 @@ export default function UsersPage() {
   // Fetch user statistics
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/users/stats');
+      const response = await apiGet('/api/users/stats');
       if (response.ok) {
         const data = await response.json();
         setStats(data);

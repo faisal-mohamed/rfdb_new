@@ -9,6 +9,7 @@ import { useToast } from '@/components/ui/Toast';
 import WorkflowStatusBadge from '@/components/WorkflowStatusBadge';
 import { DocumentWithWorkflow, VersionType, WorkflowStatus } from '@/types/workflow';
 import { getSimplePermissions } from '@/lib/simplePermissions';
+import { apiPost } from "@/lib/api";
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 
 
@@ -36,14 +37,10 @@ export default function DocumentV2Page() {
   
     setProcessing(true);
     try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'approve',
-          documentId,
-          versionId: v2Version.id,
-        }),
+      const response = await apiPost('/api/workflow', {
+        action: 'approve',
+        documentId,
+        versionId: v2Version.id,
       });
   
       const result = await response.json();
@@ -145,11 +142,7 @@ export default function DocumentV2Page() {
 
     setProcessing(true);
     try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'process_v2', documentId }),
-      });
+      const response = await apiPost('/api/workflow', { action: 'process_v2', documentId });
 
       const result = await response.json();
 
@@ -175,15 +168,11 @@ export default function DocumentV2Page() {
 
     setProcessing(true);
     try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'save_v2',
-          documentId,
-          versionId: v2Version.id,
-          jsonContent: updatedData,
-        }),
+      const response = await apiPost('/api/workflow', {
+        action: 'save_v2',
+        documentId,
+        versionId: v2Version.id,
+        jsonContent: updatedData,
       });
 
       const result = await response.json();
@@ -212,14 +201,10 @@ export default function DocumentV2Page() {
 
     setProcessing(true);
     try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'complete_v2',
-          documentId,
-          versionId: v2Version.id,
-        }),
+      const response = await apiPost('/api/workflow', {
+        action: 'complete_v2',
+        documentId,
+        versionId: v2Version.id,
       });
 
       const result = await response.json();

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { VendorQualification } from "@/types/vendor";
+import { apiGet } from "@/lib/api";
 
 export default function VendorQualificationDetailPage() {
   const params = useParams();
@@ -23,7 +24,7 @@ export default function VendorQualificationDetailPage() {
   const fetchQualification = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(`/api/vendor-qualification/${id}`);
+      const response = await apiGet(`/api/vendor-qualification/${id}`);
       if (response.ok) {
         const data = await response.json();
         setQualification(data);
@@ -51,7 +52,7 @@ export default function VendorQualificationDetailPage() {
 
   const downloadDocument = async (docId: string, fileName: string) => {
     try {
-      const response = await fetch(`/api/vendor-qualification/${id}/documents/${docId}`);
+      const response = await apiGet(`/api/vendor-qualification/${id}/documents/${docId}`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -393,6 +394,12 @@ export default function VendorQualificationDetailPage() {
     </div>
   );
 }
+
+
+
+
+
+
 
 
 

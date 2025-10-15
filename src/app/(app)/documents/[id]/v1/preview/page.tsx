@@ -6,6 +6,7 @@ import { useSession } from "next-auth/react";
 import { getSimplePermissions } from "@/lib/simplePermissions";
 import { useToast } from "@/components/ui/Toast";
 import Link from "next/link";
+import { apiGet, apiPost } from "@/lib/api";
 
 interface ParsedSection {
   title: string;
@@ -35,14 +36,14 @@ export default function V1PreviewPage({ params }: { params: Promise<{ id: string
 
   const loadV1Data = async () => {
     try {
-      const response = await fetch(`/api/documents/${id}/v1-content`);
+      const response = await apiGet(`/api/documents/${id}/v1-content`);
       if (response.ok) {
         const data = await response.json();
         setV1Data(data);
         parseGeneratedData(data);
         
         // Check if already approved
-        const statusResponse = await fetch(`/api/documents/${id}/v1-status`);
+        const statusResponse = await apiGet(`/api/documents/${id}/v1-status`);
         if (statusResponse.ok) {
           const statusData = await statusResponse.json();
           setIsApproved(statusData.status === 'APPROVED');
@@ -247,8 +248,8 @@ export default function V1PreviewPage({ params }: { params: Promise<{ id: string
       const alt = match[2] || '';
       const style = match[3] || '';
       
-      // Convert relative path to public path
-      const publicSrc = src.startsWith('./') ? src.replace('./', '/') : src;
+      // Convert relative path to public path with basePath
+      const publicSrc = src.startsWith('./') ? `/rfp${src.replace('./', '/')}` : `/rfp${src}`;
       
       images.push({ src: publicSrc, alt, style });
     }
@@ -285,10 +286,7 @@ export default function V1PreviewPage({ params }: { params: Promise<{ id: string
   const approveV1 = async () => {
     setApproving(true);
     try {
-      const response = await fetch(`/api/documents/${id}/verify-v1`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
+      const response = await apiPost(`/api/documents/${id}/verify-v1`);
 
       if (response.ok) {
         showToast({ variant: "success", message: "V1 approved successfully!" });

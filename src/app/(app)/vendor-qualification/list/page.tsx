@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { VendorQualification, VendorQualificationStatus } from "@/types/vendor";
+import { apiGet } from "@/lib/api";
 
 export default function VendorQualificationListPage() {
   const { data: session } = useSession();
@@ -28,7 +29,7 @@ export default function VendorQualificationListPage() {
         ...(statusFilter && { status: statusFilter })
       });
 
-      const response = await fetch(`/api/vendor-qualification?${params}`);
+      const response = await apiGet(`/api/vendor-qualification?${params}`);
       if (response.ok) {
         const data = await response.json();
         setQualifications(data.qualifications);
@@ -221,6 +222,12 @@ export default function VendorQualificationListPage() {
     </div>
   );
 }
+
+
+
+
+
+
 
 
 

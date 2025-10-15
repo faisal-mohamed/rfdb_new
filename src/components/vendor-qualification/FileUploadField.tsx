@@ -2,6 +2,7 @@
 
 import { useState, useRef } from "react";
 import { VENDOR_DOCUMENT_TYPES, VendorDocumentType } from "@/types/vendor";
+import { apiPost } from "@/lib/api";
 
 interface Props {
   label: string;
@@ -64,16 +65,12 @@ export default function FileUploadField({
     try {
       const base64Content = await fileToBase64(file);
 
-      const response = await fetch(`/api/vendor-qualification/${qualificationId}/documents`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documentType,
-          fileName: file.name,
-          fileContent: base64Content,
-          fileSize: file.size,
-          mimeType: file.type
-        })
+      const response = await apiPost(`/api/vendor-qualification/${qualificationId}/documents`, {
+        documentType,
+        fileName: file.name,
+        fileContent: base64Content,
+        fileSize: file.size,
+        mimeType: file.type
       });
 
       if (response.ok) {
@@ -193,6 +190,12 @@ export default function FileUploadField({
     </div>
   );
 }
+
+
+
+
+
+
 
 
 

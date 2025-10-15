@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { getSimplePermissions } from "@/lib/simplePermissions";
 import { getFileIcon } from "@/lib/file-utils";
+import { apiPost } from "@/lib/api";
 
 export default function DocumentUploadPage() {
   const { data: session } = useSession();
@@ -126,11 +127,7 @@ export default function DocumentUploadPage() {
   const generateV1AfterUpload = async (documentId: string) => {
     setIsGeneratingV1(true);
     try {
-      const response = await fetch('/api/workflow', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'process_v1', documentId }),
-      });
+      const response = await apiPost('/api/workflow', { action: 'process_v1', documentId });
       const result = await response.json();
       // Redirect to details page regardless; V1 generation runs in background
       router.push(`/documents/${documentId}`);
@@ -173,13 +170,7 @@ export default function DocumentUploadPage() {
       };
 
       // Upload document
-      const response = await fetch('/api/documents', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(uploadData),
-      });
+      const response = await apiPost('/api/documents', uploadData);
 
       const result = await response.json();
 

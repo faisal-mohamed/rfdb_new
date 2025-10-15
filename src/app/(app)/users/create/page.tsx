@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { UserRole } from "@prisma/client";
+import { apiPost } from "@/lib/api";
 
 const ROLES = [
   {
@@ -59,11 +60,7 @@ export default function CreateUserPage() {
   const generatePassword = async () => {
     setIsGeneratingPassword(true);
     try {
-      const response = await fetch('/api/users/generate-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ length: 12 })
-      });
+      const response = await apiPost('/api/users/generate-password', { length: 12 });
 
       if (response.ok) {
         const { password } = await response.json();
@@ -96,11 +93,7 @@ export default function CreateUserPage() {
     setSuccess('');
 
     try {
-      const response = await fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
+      const response = await apiPost('/api/users', formData);
 
       if (response.ok) {
         setSuccess('User created successfully! Redirecting...');

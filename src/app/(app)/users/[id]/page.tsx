@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { UserRole } from "@prisma/client";
+import { apiGet, apiPut } from "@/lib/api";
 
 interface User {
   id: string;
@@ -64,7 +65,7 @@ export default function UserDetailsPage() {
   const fetchUser = async () => {
     try {
       setIsLoading(true);
-      const response = await fetch(`/api/users/${userId}`);
+      const response = await apiGet(`/api/users/${userId}`);
       
       if (response.ok) {
         const data = await response.json();
