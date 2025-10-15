@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import EditUserModal from "@/components/EditUserModal";
 import UserTable from "@/components/UserTable";
 import { UserRole } from "@prisma/client";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiDelete } from "@/lib/api";
 
 interface User {
   id: string;
@@ -70,7 +70,7 @@ export default function UsersPage() {
         ...(statusFilter && { status: statusFilter })
       });
 
-      const response = await fetch(`/api/users?${params}`);
+      const response = await apiGet(`/api/users?${params}`);
       if (response.ok) {
         const data = await response.json();
         setUsers(data.users);
@@ -112,9 +112,7 @@ export default function UsersPage() {
   // Handle delete user (permanent deletion)
   const handleDeleteUser = async (userId: string) => {
     try {
-      const response = await fetch(`/api/users/${userId}`, {
-        method: 'DELETE'
-      });
+      const response = await apiDelete(`/api/users/${userId}`);
 
       if (response.ok) {
         await fetchUsers();
