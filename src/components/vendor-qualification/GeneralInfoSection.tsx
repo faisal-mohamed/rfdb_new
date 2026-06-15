@@ -13,6 +13,9 @@ export default function GeneralInfoSection({ data, updateData }: Props) {
     updateData({ [name]: value });
   };
 
+  // Check if date field is touched but empty
+  const isDateEmpty = !data.incorporationDate || data.incorporationDate.trim() === '';
+
   return (
     <div className="space-y-8">
       <div>
@@ -49,9 +52,30 @@ export default function GeneralInfoSection({ data, updateData }: Props) {
             name="incorporationDate"
             value={data.incorporationDate || ""}
             onChange={handleChange}
-            className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-            required
+            max={new Date().toISOString().split('T')[0]}
+            className={`w-full px-4 py-3 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
+              isDateEmpty 
+                ? 'border-slate-300 focus:ring-blue-500 focus:border-blue-500' 
+                : 'border-green-300 bg-green-50 focus:ring-green-500 focus:border-green-500'
+            }`}
+            placeholder="YYYY-MM-DD"
+            aria-label="Select date of incorporation"
           />
+          {isDateEmpty ? (
+            <p className="text-xs text-slate-500 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Please select the date when your organization was incorporated
+            </p>
+          ) : (
+            <p className="text-xs text-green-600 flex items-center gap-1">
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Date selected
+            </p>
+          )}
         </div>
 
         {/* Telephone */}

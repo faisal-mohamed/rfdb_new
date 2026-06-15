@@ -59,14 +59,107 @@ export default function V1PreviewPage({ params }: { params: Promise<{ id: string
     }
   };
 
+  const parseMarkdownTable = (markdownTable: string): { headers: string[]; rows: string[][] } | null => {
+    try {
+      const lines = markdownTable.trim().split('\n').filter(line => line.trim());
+      if (lines.length < 2) return null;
+
+      // Find header row (first line with |)
+      let headerLine = '';
+      let headerIndex = -1;
+      let separatorIndex = -1;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.includes('|') && !line.match(/^[\s|:\-]+$/)) {
+          if (headerIndex === -1) {
+            headerLine = line;
+            headerIndex = i;
+          }
+        } else if (line.match(/^[\s|:\-]+$/) && headerIndex >= 0 && separatorIndex === -1) {
+          separatorIndex = i;
+        }
+      }
+
+      if (!headerLine) return null;
+
+      // Parse headers - split by |, trim, filter empty cells at start/end
+      const headerCells = headerLine.split('|').map(cell => cell.trim());
+      const headers = headerCells.filter((cell, idx) => 
+        idx > 0 && idx < headerCells.length - 1
+      );
+
+      // Parse rows (skip separator row if present)
+      const rows: string[][] = [];
+      const startIndex = separatorIndex >= 0 ? separatorIndex + 1 : headerIndex + 1;
+      
+      for (let i = startIndex; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || !line.includes('|')) continue;
+        
+        // Skip separator rows (lines with only dashes and pipes)
+        if (line.match(/^[\s|:\-]+$/)) continue;
+
+        const rowCells = line.split('|').map(cell => cell.trim());
+        const row = rowCells.filter((cell, idx) => 
+          idx > 0 && idx < rowCells.length - 1
+        );
+        
+        if (row.length === headers.length) {
+          rows.push(row);
+        }
+      }
+
+      if (headers.length === 0) return null;
+
+      return { headers, rows };
+    } catch (error) {
+      console.error("Error parsing markdown table:", error);
+      return null;
+    }
+  };
+
   const parseGeneratedData = (data: any) => {
     const sections: ParsedSection[] = [];
     
-    // Extract generated_data from the response structure
-    const extractedContent = data?.["1"]?.extracted_content?.[0]?.fields?.[0]?.generated_data?.value;
+    // Extract compliance_items.value
+    let complianceItemsContent: string | null = null;
+    
+    // Try old format: data["1"].extracted_content[0].fields[].compliance_items.value
+    if (data?.["1"]?.extracted_content?.[0]?.fields && Array.isArray(data["1"].extracted_content[0].fields)) {
+      const complianceField = data["1"].extracted_content[0].fields.find(
+        (field: any) => field.compliance_items?.value
+      );
+      if (complianceField) {
+        complianceItemsContent = complianceField.compliance_items.value;
+      }
+    }
+
+    // Try new RFP_AI format: data.fields[].compliance_items.value
+    if (!complianceItemsContent && data?.fields && Array.isArray(data.fields)) {
+      const complianceField = data.fields.find(
+        (field: any) => field.compliance_items?.value
+      );
+      if (complianceField) {
+        complianceItemsContent = complianceField.compliance_items.value;
+      }
+    }
+    
+    // Try old format first: data["1"].extracted_content[0].fields[0].generated_data.value
+    let extractedContent = data?.["1"]?.extracted_content?.[0]?.fields?.[0]?.generated_data?.value;
+    
+    // If not found, try new RFP_AI format: data.fields[].generated_report.value
+    if (!extractedContent && data?.fields && Array.isArray(data.fields)) {
+      const generatedReportField = data.fields.find(
+        (field: any) => field.generated_report?.value
+      );
+      if (generatedReportField) {
+        extractedContent = generatedReportField.generated_report.value;
+      }
+    }
     
     if (!extractedContent) {
-      console.warn("No generated_data found in response");
+      console.warn("No generated_data found in response. Data structure:", JSON.stringify(data, null, 2));
       return;
     }
 
@@ -204,6 +297,28 @@ export default function V1PreviewPage({ params }: { params: Promise<{ id: string
         section.type = section.type === 'table' ? 'table' : 'mixed';
       }
     });
+
+    // Add compliance items as a separate section if available
+    if (complianceItemsContent) {
+      const complianceTable = parseMarkdownTable(complianceItemsContent);
+      if (complianceTable) {
+        sections.push({
+          title: "Compliance Items",
+          content: complianceItemsContent,
+          level: 1,
+          type: "table",
+          tableData: complianceTable,
+        });
+      } else {
+        // If markdown table parsing fails, add as text
+        sections.push({
+          title: "Compliance Items",
+          content: complianceItemsContent,
+          level: 1,
+          type: "text",
+        });
+      }
+    }
     
     setParsedSections(sections);
   };

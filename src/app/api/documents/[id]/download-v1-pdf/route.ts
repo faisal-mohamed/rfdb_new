@@ -154,6 +154,7 @@ import { prisma } from '@/lib/prisma';
 import { getSimplePermissions } from '@/lib/simplePermissions';
 import { VersionType } from '@prisma/client';
 import { chromium } from 'playwright';
+import { VendorQualification } from '@/types/vendor';
 import fs from 'fs';
 import path from 'path';
 
@@ -188,8 +189,53 @@ export async function GET(
       return NextResponse.json({ error: 'Approved V1 not found' }, { status: 404 });
     }
 
+    // Get document to check for selected vendor fields
+    const document = await prisma.document.findFirst({
+      where: { id: processId },
+      select: { selectedVendorFields: true } as any, // Type assertion until Prisma Client regenerates
+    }) as { selectedVendorFields?: any } | null;
+
+    // Get vendor qualification data if document has selected vendor fields
+    // Note: Only one vendor record exists for the entire application - use it for all documents
+    let vendorFieldsHTML = '';
+    if (document?.selectedVendorFields && Array.isArray(document.selectedVendorFields) && document.selectedVendorFields.length > 0) {
+      const selectedVendorFields = document.selectedVendorFields as string[];
+      
+      // Fetch the single vendor qualification record (most recent if multiple exist)
+      const vendorQualification = await prisma.vendorQualification.findFirst({
+        orderBy: { createdAt: 'desc' }, // Get most recent vendor record
+        include: {
+          directors: true,
+          references: { orderBy: { serialNumber: 'asc' } },
+          personnel: true,
+          documents: {
+            select: {
+              id: true,
+              documentType: true,
+              fileName: true,
+              fileSize: true,
+              mimeType: true,
+              uploadedAt: true,
+            },
+          },
+        },
+      });
+      
+      if (vendorQualification) {
+        vendorFieldsHTML = formatVendorFieldsHTML(vendorQualification as any, selectedVendorFields);
+        console.log(`✅ Using global vendor qualification record with ${selectedVendorFields.length} selected fields for PDF`);
+      } else {
+        console.log(`⚠️ No vendor qualification record found in the system`);
+      }
+    }
+
     // Generate HTML content
-    const htmlContent = generateHTMLFromV1Data(v1Version.jsonContent);
+    let htmlContent = generateHTMLFromV1Data(v1Version.jsonContent);
+    
+    // Append vendor fields HTML if available
+    if (vendorFieldsHTML) {
+      htmlContent = htmlContent.replace('</body>', vendorFieldsHTML + '</body>');
+    }
 
     // Generate PDF using Playwright
     const browser = await chromium.launch();
@@ -229,7 +275,19 @@ export async function GET(
 
 function generateHTMLFromV1Data(v1Data: any): string {
   // Extract generated_data from the response structure
-  const extractedContent = v1Data?.["1"]?.extracted_content?.[0]?.fields?.[0]?.generated_data?.value;
+  let extractedContent = v1Data?.["1"]?.extracted_content?.[0]?.fields?.[0]?.generated_data?.value || '';
+  
+  // Also extract compliance_items if available
+  const fields = v1Data?.["1"]?.extracted_content?.[0]?.fields || [];
+  const complianceField = fields.find((field: any) => field.compliance_items?.value);
+  
+  if (complianceField?.compliance_items?.value) {
+    // Add a header for compliance items and append the markdown table
+    const complianceContent = complianceField.compliance_items.value.trim();
+    if (complianceContent) {
+      extractedContent += '\n\n**COMPLIANCE ITEMS**\n\n' + complianceContent;
+    }
+  }
   
   if (!extractedContent) {
     return '<html><body><p>No generated data found</p></body></html>';
@@ -291,10 +349,19 @@ function generateHTMLFromV1Data(v1Data: any): string {
           font-family: Arial, Helvetica, sans-serif;
           font-weight: 700;
           line-height: 1.2;
-          page-break-after: avoid;
-          page-break-inside: avoid;
+          page-break-after: avoid !important;
+          page-break-inside: avoid !important;
+          page-break-before: auto;
           color: #000000;
           letter-spacing: 0.02em;
+        }
+        
+        /* Prevent orphaned headers - ensure minimum content follows */
+        h1::after, h2::after, h3::after, h4::after, h5::after, h6::after {
+          content: "";
+          display: block;
+          height: 100pt; /* Reserve space for ~5-7 lines of content */
+          margin-bottom: -100pt; /* Collapse the space */
         }
         
         /* H1 - Major sections (CONFIDENTIALITY CLAUSE, DISCLAIMER, etc.) */
@@ -310,7 +377,21 @@ function generateHTMLFromV1Data(v1Data: any): string {
           letter-spacing: 0.12em;
         }
         
-        /* H2 - Subsections (GLOSSARY AND ABBREVIATIONS, etc.) */
+        /* Reserve more space for H1 to ensure content follows */
+        h1::after {
+          height: 120pt !important; /* ~8-10 lines minimum */
+        }
+        
+        /* CRITICAL: If H1 is followed by image/screenshot, reserve MUCH more space */
+        h1:has(+ img)::after,
+        h1:has(+ div:has(img))::after,
+        h1:has(+ p + img)::after,
+        h1:has(+ p + div:has(img))::after {
+          height: 350pt !important; /* Large enough to force both to next page */
+          margin-bottom: -350pt !important;
+        }
+        
+image.png        /* H2 - Subsections (GLOSSARY AND ABBREVIATIONS, etc.) */
         h2 {
           font-size: 16pt;
           font-weight: 700;
@@ -321,6 +402,20 @@ function generateHTMLFromV1Data(v1Data: any): string {
           margin-bottom: 12pt;
           text-transform: uppercase;
           letter-spacing: 0.1em;
+        }
+        
+        /* Reserve space for H2 */
+        h2::after {
+          height: 110pt !important; /* ~7-8 lines minimum */
+        }
+        
+        /* CRITICAL: If H2 is followed by image/screenshot, reserve MUCH more space */
+        h2:has(+ img)::after,
+        h2:has(+ div:has(img))::after,
+        h2:has(+ p + img)::after,
+        h2:has(+ p + div:has(img))::after {
+          height: 350pt !important; /* Large enough to force both to next page */
+          margin-bottom: -350pt !important;
         }
         
         /* H3 - Sub-subsections */
@@ -334,6 +429,20 @@ function generateHTMLFromV1Data(v1Data: any): string {
           letter-spacing: 0.02em;
         }
         
+        /* Reserve space for H3 */
+        h3::after {
+          height: 90pt !important; /* ~5-6 lines minimum */
+        }
+        
+        /* CRITICAL: If H3 is followed by image/screenshot, reserve MUCH more space */
+        h3:has(+ img)::after,
+        h3:has(+ div:has(img))::after,
+        h3:has(+ p + img)::after,
+        h3:has(+ p + div:has(img))::after {
+          height: 350pt !important; /* Large enough to force both to next page */
+          margin-bottom: -350pt !important;
+        }
+        
         /* H4 - Minor sections */
         h4 {
           font-size: 13pt;
@@ -344,6 +453,20 @@ function generateHTMLFromV1Data(v1Data: any): string {
           text-transform: none;
         }
         
+        /* Reserve space for H4 */
+        h4::after {
+          height: 75pt !important; /* ~4-5 lines minimum */
+        }
+        
+        /* CRITICAL: If H4 is followed by image/screenshot, reserve MUCH more space */
+        h4:has(+ img)::after,
+        h4:has(+ div:has(img))::after,
+        h4:has(+ p + img)::after,
+        h4:has(+ p + div:has(img))::after {
+          height: 350pt !important; /* Large enough to force both to next page */
+          margin-bottom: -350pt !important;
+        }
+        
         /* H5, H6 - Small headers */
         h5, h6 {
           font-size: 12pt;
@@ -352,6 +475,11 @@ function generateHTMLFromV1Data(v1Data: any): string {
           margin-top: 10pt;
           margin-bottom: 6pt;
           text-transform: none;
+        }
+        
+        /* Reserve space for H5, H6 */
+        h5::after, h6::after {
+          height: 65pt !important; /* ~3-4 lines minimum */
         }
         
         /* Bold text - preserve weight */
@@ -365,8 +493,8 @@ function generateHTMLFromV1Data(v1Data: any): string {
           line-height: 1.6;
           text-align: justify;
           text-justify: inter-word;
-          orphans: 2;
-          widows: 2;
+          orphans: 3;  /* Increased: minimum 3 lines at bottom of page */
+          widows: 3;   /* Increased: minimum 3 lines at top of page */
           font-size: 13pt;
           color: #000000;
         }
@@ -379,6 +507,34 @@ function generateHTMLFromV1Data(v1Data: any): string {
         p:has(+ ul), p:has(+ ol) {
           margin-bottom: 6pt;
           page-break-after: avoid;
+        }
+        
+        /* CRITICAL: Paragraphs with images following (subsection labels like "Dashboard & Commission View") */
+        p:has(+ img) {
+          page-break-after: avoid !important;
+        }
+        
+        /* Paragraphs followed by div containing images */
+        p:has(+ div:has(img)) {
+          page-break-after: avoid !important;
+        }
+        
+        /* Bold text acting as subsection labels (between header and images) */
+        p:has(> strong:only-child),
+        p:has(> b:only-child) {
+          page-break-after: avoid !important;
+          font-weight: 700;
+        }
+        
+        /* Ensure bold subsection labels with images have HUGE space reservation */
+        p:has(> strong:only-child):has(+ img)::after,
+        p:has(> b:only-child):has(+ img)::after,
+        p:has(> strong:only-child):has(+ div:has(img))::after,
+        p:has(> b:only-child):has(+ div:has(img))::after {
+          content: "";
+          display: block;
+          height: 350pt !important;
+          margin-bottom: -350pt !important;
         }
         
         /* Strong and emphasis */
@@ -652,9 +808,52 @@ function generateHTMLFromV1Data(v1Data: any): string {
           height: auto;
           margin: 18pt auto;
           display: block;
-          page-break-inside: avoid;
+          page-break-inside: avoid !important;
+          page-break-before: auto;
+          page-break-after: auto;
           // border: 1.5pt solid #999999;
           border-radius: 0;
+        }
+        
+        /* CRITICAL: Images immediately after headers MUST stay with header */
+        h1 + img, h2 + img, h3 + img, h4 + img, h5 + img, h6 + img {
+          page-break-before: avoid !important;
+        }
+        
+        /* Headers followed by paragraph then image */
+        h1 + p + img, h2 + p + img, h3 + p + img, h4 + p + img {
+          page-break-before: avoid !important;
+        }
+        
+        /* Div containers with images (like flex layouts for mobile mockups) */
+        div:has(img) {
+          page-break-inside: avoid !important;
+        }
+        
+        /* Headers followed by div containing images */
+        h1 + div:has(img), h2 + div:has(img), h3 + div:has(img), h4 + div:has(img) {
+          page-break-before: avoid !important;
+          page-break-inside: avoid !important;
+        }
+        
+        /* Headers followed by paragraph then div with images */
+        h1 + p + div:has(img), h2 + p + div:has(img), h3 + p + div:has(img), h4 + p + div:has(img) {
+          page-break-before: avoid !important;
+          page-break-inside: avoid !important;
+        }
+        
+        /* Flex containers (side-by-side images like mobile mockups) */
+        div[style*="display: flex"],
+        div[style*="display:flex"],
+        div[style*="flex-wrap"] {
+          page-break-inside: avoid !important;
+          page-break-before: auto;
+          page-break-after: auto;
+        }
+        
+        /* Multiple consecutive images should stay together */
+        img + img {
+          page-break-before: avoid !important;
         }
         
         /* Small images (logos in tables) - Constrain size to prevent overflow */
@@ -870,26 +1069,87 @@ function generateHTMLFromV1Data(v1Data: any): string {
           
           h1 {
             font-size: 20pt;
-            page-break-after: avoid;
+            page-break-after: avoid !important;
+            page-break-before: auto;
             margin-top: 0;
+          }
+          
+          /* Enhanced space reservation for H1 in print */
+          h1::after {
+            height: 150pt !important; /* More aggressive in print mode */
+            margin-bottom: -150pt !important;
+          }
+          
+          /* SUPER CRITICAL: If H1 followed by images in print mode */
+          h1:has(+ img)::after,
+          h1:has(+ div:has(img))::after,
+          h1:has(+ p + img)::after,
+          h1:has(+ p + div:has(img))::after {
+            height: 400pt !important; /* HUGE reservation to force both to next page */
+            margin-bottom: -400pt !important;
           }
           
           h2 {
             font-size: 16pt;
-            page-break-after: avoid;
+            page-break-after: avoid !important;
             margin-top: 16pt;
+          }
+          
+          /* Enhanced space reservation for H2 in print */
+          h2::after {
+            height: 130pt !important;
+            margin-bottom: -130pt !important;
+          }
+          
+          /* SUPER CRITICAL: If H2 followed by images in print mode */
+          h2:has(+ img)::after,
+          h2:has(+ div:has(img))::after,
+          h2:has(+ p + img)::after,
+          h2:has(+ p + div:has(img))::after {
+            height: 400pt !important; /* HUGE reservation to force both to next page */
+            margin-bottom: -400pt !important;
           }
           
           h3 {
             font-size: 14pt;
-            page-break-after: avoid;
+            page-break-after: avoid !important;
             margin-top: 12pt;
+          }
+          
+          /* Enhanced space reservation for H3 in print */
+          h3::after {
+            height: 100pt !important;
+            margin-bottom: -100pt !important;
+          }
+          
+          /* SUPER CRITICAL: If H3 followed by images in print mode */
+          h3:has(+ img)::after,
+          h3:has(+ div:has(img))::after,
+          h3:has(+ p + img)::after,
+          h3:has(+ p + div:has(img))::after {
+            height: 400pt !important; /* HUGE reservation to force both to next page */
+            margin-bottom: -400pt !important;
           }
           
           h4, h5, h6 {
             font-size: 13pt;
-            page-break-after: avoid;
+            page-break-after: avoid !important;
             margin-top: 10pt;
+          }
+          
+          /* Enhanced space reservation for H4-H6 in print */
+          h4::after, h5::after, h6::after {
+            height: 80pt !important;
+            margin-bottom: -80pt !important;
+          }
+          
+          /* SUPER CRITICAL: If H4-H6 followed by images in print mode */
+          h4:has(+ img)::after, h5:has(+ img)::after, h6:has(+ img)::after,
+          h4:has(+ div:has(img))::after, h5:has(+ div:has(img))::after, h6:has(+ div:has(img))::after,
+          h4:has(+ p + img)::after, h5:has(+ p + img)::after, h6:has(+ p + img)::after,
+          h4:has(+ p + div:has(img))::after, h5:has(+ p + div:has(img))::after, h6:has(+ p + div:has(img))::after {
+            height: 400pt !important; /* HUGE reservation to force both to next page */
+            margin-bottom: -400pt !important;
           }
           
           table {
@@ -905,9 +1165,71 @@ function generateHTMLFromV1Data(v1Data: any): string {
           }
           
           img {
-            page-break-inside: avoid;
+            page-break-inside: avoid !important;
             page-break-before: auto;
             page-break-after: auto;
+          }
+          
+          /* SUPER CRITICAL: Images after headers must stay together */
+          h1 + img, h2 + img, h3 + img, h4 + img, h5 + img, h6 + img {
+            page-break-before: avoid !important;
+          }
+          
+          /* Headers followed by paragraph then image */
+          h1 + p + img, h2 + p + img, h3 + p + img, h4 + p + img {
+            page-break-before: avoid !important;
+          }
+          
+          /* Containers with images */
+          div:has(img) {
+            page-break-inside: avoid !important;
+          }
+          
+          /* Headers followed by div with images */
+          h1 + div:has(img), h2 + div:has(img), h3 + div:has(img), h4 + div:has(img) {
+            page-break-before: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          
+          /* Headers followed by paragraph then div with images */
+          h1 + p + div:has(img), h2 + p + div:has(img), h3 + p + div:has(img), h4 + p + div:has(img) {
+            page-break-before: avoid !important;
+            page-break-inside: avoid !important;
+          }
+          
+          /* Flex containers (mobile mockups side-by-side) */
+          div[style*="display: flex"],
+          div[style*="display:flex"] {
+            page-break-inside: avoid !important;
+            page-break-before: auto;
+          }
+          
+          /* Consecutive images stay together */
+          img + img {
+            page-break-before: avoid !important;
+          }
+          
+          /* Paragraphs before images must stay together */
+          p:has(+ img),
+          p:has(+ div:has(img)) {
+            page-break-after: avoid !important;
+          }
+          
+          /* Bold subsection labels before images */
+          p:has(> strong:only-child):has(+ img),
+          p:has(> b:only-child):has(+ img),
+          p:has(> strong:only-child):has(+ div:has(img)),
+          p:has(> b:only-child):has(+ div:has(img)) {
+            page-break-after: avoid !important;
+          }
+          
+          /* Reserve huge space for bold labels followed by images */
+          p:has(> strong:only-child):has(+ img)::after,
+          p:has(> b:only-child):has(+ img)::after,
+          p:has(> strong:only-child):has(+ div:has(img))::after,
+          p:has(> b:only-child):has(+ div:has(img))::after {
+            height: 400pt !important;
+            margin-bottom: -400pt !important;
           }
           
           pre {
@@ -918,22 +1240,54 @@ function generateHTMLFromV1Data(v1Data: any): string {
             page-break-inside: avoid;
           }
           
-          /* Keep content together */
+          /* Keep content together - ENHANCED */
           h1, h2, h3, h4, h5, h6 {
-            page-break-after: avoid;
+            page-break-after: avoid !important;
+            page-break-inside: avoid !important;
           }
           
-          h1 + p, h2 + p, h3 + p, h4 + p {
+          /* Force at least 2-3 elements to stay with header */
+          h1 + p, h2 + p, h3 + p, h4 + p, h5 + p, h6 + p {
+            page-break-before: avoid !important;
+            page-break-inside: avoid;
+          }
+          
+          h1 + ul, h2 + ul, h3 + ul, h4 + ul, h5 + ul, h6 + ul {
+            page-break-before: avoid !important;
+          }
+          
+          h1 + ol, h2 + ol, h3 + ol, h4 + ol, h5 + ol, h6 + ol {
+            page-break-before: avoid !important;
+          }
+          
+          h1 + table, h2 + table, h3 + table, h4 + table, h5 + table, h6 + table {
+            page-break-before: avoid !important;
+          }
+          
+          h1 + img, h2 + img, h3 + img, h4 + img, h5 + img, h6 + img {
+            page-break-before: avoid !important;
+          }
+          
+          h1 + blockquote, h2 + blockquote, h3 + blockquote, h4 + blockquote {
+            page-break-before: avoid !important;
+          }
+          
+          /* Ensure following paragraph also stays with header */
+          h1 + p + p, h2 + p + p, h3 + p + p, h4 + p + p {
             page-break-before: avoid;
           }
           
-          h1 + ul, h2 + ul, h3 + ul, h4 + ul {
-            page-break-before: avoid;
+          /* Keep list items with their header */
+          h1 + ul > li:first-child,
+          h2 + ul > li:first-child,
+          h3 + ul > li:first-child,
+          h4 + ul > li:first-child {
+            page-break-before: avoid !important;
           }
           
           p {
-            orphans: 2;
-            widows: 2;
+            orphans: 3;  /* Minimum 3 lines at bottom */
+            widows: 3;   /* Minimum 3 lines at top */
           }
           
           /* Allow page breaks in long lists */
@@ -1537,4 +1891,234 @@ function renderTextContent(content: string): string {
   htmlContent = htmlContent.replace(/(<li>.*?<\/li>)+/g, '<ul>$&</ul>');
   
   return htmlContent;
+}
+
+function formatVendorFieldsHTML(vendorData: VendorQualification, selectedFields: string[]): string {
+  if (!selectedFields || selectedFields.length === 0) return '';
+
+  const formatValue = (value: any): string => {
+    if (value === null || value === undefined) return '<span style="color: #94a3b8; font-style: italic;">Not provided</span>';
+    if (Array.isArray(value)) return value.join(', ');
+    if (typeof value === 'object') return JSON.stringify(value, null, 2);
+    if (value instanceof Date) return value.toLocaleDateString();
+    return String(value);
+  };
+
+  const fieldMap: Record<string, { label: string; section: string }> = {
+    organizationName: { label: 'Name of the Organization', section: 'General Information' },
+    incorporationDate: { label: 'Date of Incorporation', section: 'General Information' },
+    postalAddress: { label: 'Postal Address', section: 'General Information' },
+    telephone: { label: 'Telephone Number', section: 'General Information' },
+    email: { label: 'E-mail Address', section: 'General Information' },
+    registeredOfficeLocation: { label: 'Location of Registered Office', section: 'General Information' },
+    bankersInfo: { label: 'Name and Address of Bankers', section: 'General Information' },
+    insurersInfo: { label: 'Name and Address of Insurers', section: 'General Information' },
+    businessDescription: { label: 'Brief Description of Business', section: 'General Information' },
+    companyAuditors: { label: 'Company Auditors', section: 'General Information' },
+    mainBusinessActivity: { label: 'Main Business Activity', section: 'General Information' },
+    bankName: { label: 'Bank Name', section: 'Banking Details' },
+    accountNumber: { label: 'Account Number', section: 'Banking Details' },
+    branch: { label: 'Branch', section: 'Banking Details' },
+    authorizedSignatories: { label: 'Authorized Signatories', section: 'Banking Details' },
+    directors: { label: 'Directors', section: 'Directors' },
+    contactPersonName: { label: 'Contact Person Name', section: 'Contact Person' },
+    contactPersonEmail: { label: 'Contact Person Email', section: 'Contact Person' },
+    contactPersonPhone: { label: 'Contact Person Phone', section: 'Contact Person' },
+    references: { label: 'Bank References', section: 'References' },
+    totalEmployees: { label: 'Total Number of Employees', section: 'Employee Strength' },
+    managementTeam: { label: 'Management Team', section: 'Employee Strength' },
+    technicalTeam: { label: 'Technical Team', section: 'Employee Strength' },
+    nonTechnicalTeam: { label: 'Non-Technical Team', section: 'Employee Strength' },
+    personnel: { label: 'Key Personnel', section: 'Personnel' },
+  };
+
+  const fieldsBySection: Record<string, { path: string; label: string; value: any }[]> = {
+    'General Information': [],
+    'Banking Details': [],
+    'Directors': [],
+    'Contact Person': [],
+    'References': [],
+    'Employee Strength': [],
+    'Personnel': [],
+  };
+
+  // Separate document fields from regular fields
+  const documentFields: { path: string; label: string; documentType: string; section: string }[] = [];
+  const documentTypeLabels: Record<string, string> = {
+    'business_continuity': 'Business Continuity Plan',
+    'audited_accounts': '3 Years Audited Books of Accounts',
+    'memorandum_articles': 'Memorandum and Articles of Association',
+    'cr12_form': 'CR12 Form',
+    'bank_confirmation': 'Letter of Confirmation from Bank',
+    'incorporation_cert': 'Certificate of Incorporation',
+    'pacra_documents': 'PACRA Documents detailing Shareholders',
+    'tax_certificate': 'Valid Tax Certificate',
+    'utility_bill': 'Utility Bill',
+    'reference_letter_1': 'Reference Letter - 1',
+    'reference_letter_2': 'Reference Letter - 2',
+    'reference_letter_3': 'Reference Letter - 3',
+    'vat_certificate': 'VAT Registration Certificate',
+    'gst_certificate': 'Goods & Services Tax Certificate',
+    'trading_license': 'Valid Trading License (2024)',
+    'tax_clearance': 'Tax Clearance Certificate',
+    'manufacturer_auth': 'Manufacturer Authorization or Equivalent',
+    'declaration_insolvency': 'Self Declaration - Company is Not Insolvent',
+    'declaration_suspension': 'Self Declaration - No Business Suspension/Conflict of Interest',
+    'balance_sheet_2022': 'Balance Sheet for FY 2021-22',
+    'profit_loss_2024': 'Profit & Loss Statement for FY 2023-24',
+    'organogram': 'Organogram and Employee Strength Chart',
+    'organizational_structure': 'Organizational Structure Diagram',
+    'financial_statement_2022': 'Financial Statements FY 2021-22',
+    'financial_statement_2023': 'Financial Statements FY 2022-23',
+    'financial_statement_2024': 'Financial Statements FY 2023-24',
+    'personnel_cv': 'Personnel CV(s)',
+  };
+  
+  const documentSectionMap: Record<string, string> = {
+    'business_continuity': 'General Documents',
+    'audited_accounts': 'General Documents',
+    'memorandum_articles': 'General Documents',
+    'cr12_form': 'General Documents',
+    'bank_confirmation': 'Vendor Documents',
+    'incorporation_cert': 'Vendor Documents',
+    'pacra_documents': 'Vendor Documents',
+    'tax_certificate': 'Vendor Documents',
+    'utility_bill': 'Vendor Documents',
+    'reference_letter_1': 'Reference Letters',
+    'reference_letter_2': 'Reference Letters',
+    'reference_letter_3': 'Reference Letters',
+    'vat_certificate': 'Compliance Certificates',
+    'gst_certificate': 'Compliance Certificates',
+    'trading_license': 'Compliance Certificates',
+    'tax_clearance': 'Compliance Certificates',
+    'manufacturer_auth': 'Compliance Certificates',
+    'declaration_insolvency': 'Self Declarations',
+    'declaration_suspension': 'Self Declarations',
+    'balance_sheet_2022': 'Financial Documents',
+    'profit_loss_2024': 'Financial Documents',
+    'organogram': 'Organizational Documents',
+    'organizational_structure': 'Organizational Documents',
+    'financial_statement_2022': 'Financial Documents',
+    'financial_statement_2023': 'Financial Documents',
+    'financial_statement_2024': 'Financial Documents',
+    'personnel_cv': 'Organizational Documents',
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  selectedFields.forEach((path) => {
+    // Check if this is a document field
+    if (path.startsWith('documents:')) {
+      const documentType = path.replace('documents:', '');
+      const label = documentTypeLabels[documentType] || documentType;
+      const section = documentSectionMap[documentType] || 'Documents';
+      documentFields.push({ path, label, documentType, section });
+      return;
+    }
+
+    const fieldInfo = fieldMap[path];
+    if (fieldInfo) {
+      const value = (vendorData as any)[path];
+      if (value !== undefined) {
+        fieldsBySection[fieldInfo.section].push({ path, label: fieldInfo.label, value });
+      }
+    }
+  });
+
+  let html = '<div style="page-break-before: always; margin-top: 40pt;">';
+  
+  // Process regular fields
+  Object.entries(fieldsBySection).forEach(([section, fields]) => {
+    if (fields.length === 0) return;
+
+    html += `<h2 style="font-size: 14pt; font-weight: bold; margin-top: 24pt; margin-bottom: 12pt; text-transform: uppercase; color: #000000;">${section}</h2>`;
+
+    if (section === 'Directors' && fields[0].path === 'directors' && vendorData.directors) {
+      html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 16pt;">';
+      html += '<thead><tr style="background-color: #E8E8E8;"><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Name</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Position</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Contact</th></tr></thead><tbody>';
+      vendorData.directors.forEach((director: any, idx: number) => {
+        const bgColor = idx % 2 === 0 ? '#FFFFFF' : '#F5F5F5';
+        html += `<tr style="background-color: ${bgColor};">`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${director.name || 'Not provided'}</td>`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${director.position || 'Not provided'}</td>`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${director.contact || 'Not provided'}</td>`;
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+    } else if (section === 'References' && fields[0].path === 'references' && vendorData.references) {
+      html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 16pt;">';
+      html += '<thead><tr style="background-color: #E8E8E8;"><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: center; width: 10%;">S.No</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Bank Name</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Contact Person</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Contact Details</th></tr></thead><tbody>';
+      vendorData.references.forEach((ref: any, idx: number) => {
+        const bgColor = idx % 2 === 0 ? '#FFFFFF' : '#F5F5F5';
+        html += `<tr style="background-color: ${bgColor};">`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt; text-align: center;">${ref.serialNumber || idx + 1}</td>`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${ref.bankName || 'Not provided'}</td>`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${ref.contactPerson || 'Not provided'}</td>`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${ref.contactDetails || 'Not provided'}</td>`;
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+    } else if (section === 'Personnel' && fields[0].path === 'personnel' && vendorData.personnel) {
+      html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 16pt;">';
+      html += '<thead><tr style="background-color: #E8E8E8;"><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Name</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Role/Position</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Qualification</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Experience</th></tr></thead><tbody>';
+      vendorData.personnel.forEach((person: any, idx: number) => {
+        const bgColor = idx % 2 === 0 ? '#FFFFFF' : '#F5F5F5';
+        html += `<tr style="background-color: ${bgColor};">`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${person.name || 'Not provided'}</td>`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${person.role || 'Not provided'}</td>`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${person.qualification || 'Not provided'}</td>`;
+        html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${person.experience || 'Not provided'}</td>`;
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+    } else {
+      fields.forEach(({ label, value }) => {
+        html += `<p style="margin-bottom: 12pt; line-height: 1.6;"><strong>${label}:</strong> ${formatValue(value)}</p>`;
+      });
+    }
+  });
+
+  // Process document fields (grouped by section)
+  if (documentFields.length > 0 && vendorData.documents && Array.isArray(vendorData.documents)) {
+    const documentsBySection: Record<string, typeof documentFields> = {};
+    
+    documentFields.forEach(docField => {
+      const section = docField.section;
+      if (!documentsBySection[section]) {
+        documentsBySection[section] = [];
+      }
+      documentsBySection[section].push(docField);
+    });
+
+    Object.entries(documentsBySection).forEach(([section, docFields]) => {
+      html += `<h2 style="font-size: 14pt; font-weight: bold; margin-top: 24pt; margin-bottom: 12pt; text-transform: uppercase; color: #000000;">${section}</h2>`;
+
+      // Filter documents by selected types
+      const selectedDocumentTypes = docFields.map(f => f.documentType);
+      const filteredDocs = (vendorData.documents as any[]).filter((doc: any) => selectedDocumentTypes.includes(doc.documentType));
+
+      if (filteredDocs.length > 0) {
+        html += '<table style="width: 100%; border-collapse: collapse; margin-bottom: 16pt;">';
+        html += '<thead><tr style="background-color: #E8E8E8;"><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">Document Type</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">File Name</th><th style="border: 1px solid #CCCCCC; padding: 8pt; text-align: left;">File Size</th></tr></thead><tbody>';
+        filteredDocs.forEach((doc: any, idx: number) => {
+          const bgColor = idx % 2 === 0 ? '#FFFFFF' : '#F5F5F5';
+          html += `<tr style="background-color: ${bgColor};">`;
+          html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${documentTypeLabels[doc.documentType] || doc.documentType}</td>`;
+          html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${doc.fileName || 'Not provided'}</td>`;
+          html += `<td style="border: 1px solid #CCCCCC; padding: 8pt;">${formatFileSize(doc.fileSize || 0)}</td>`;
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+      }
+    });
+  }
+
+  html += '</div>';
+  return html;
 }

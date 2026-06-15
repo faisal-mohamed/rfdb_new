@@ -685,10 +685,17 @@ export default function V1EditorPage({
       const response = await apiGet(`/api/documents/${id}/v1-content`);
       if (response.ok) {
         const data = await response.json();
+        console.log("V1 data loaded:", data);
         setV1Data(data);
         parseGeneratedData(data);
       } else {
-        showToast({ variant: "error", message: "Failed to load V1 data" });
+        const errorData = await response.json().catch(() => ({}));
+        if (errorData.notGenerated) {
+          console.warn("V1 not generated yet for document:", id);
+          // Don't show error toast if V1 just hasn't been generated yet
+        } else {
+          showToast({ variant: "error", message: errorData.error || "Failed to load V1 data" });
+        }
       }
     } catch (error) {
       console.error("Error loading V1 data:", error);
@@ -728,14 +735,108 @@ export default function V1EditorPage({
     }
   };
 
+  const parseMarkdownTable = (markdownTable: string): { headers: string[]; rows: string[][] } | null => {
+    try {
+      const lines = markdownTable.trim().split('\n').filter(line => line.trim());
+      if (lines.length < 2) return null;
+
+      // Find header row (first line with |)
+      let headerLine = '';
+      let headerIndex = -1;
+      let separatorIndex = -1;
+      
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.includes('|') && !line.match(/^[\s|:\-]+$/)) {
+          if (headerIndex === -1) {
+            headerLine = line;
+            headerIndex = i;
+          }
+        } else if (line.match(/^[\s|:\-]+$/) && headerIndex >= 0 && separatorIndex === -1) {
+          separatorIndex = i;
+        }
+      }
+
+      if (!headerLine) return null;
+
+      // Parse headers - split by |, trim, filter empty cells at start/end
+      const headerCells = headerLine.split('|').map(cell => cell.trim());
+      const headers = headerCells.filter((cell, idx) => 
+        idx > 0 && idx < headerCells.length - 1
+      );
+
+      // Parse rows (skip separator row if present)
+      const rows: string[][] = [];
+      const startIndex = separatorIndex >= 0 ? separatorIndex + 1 : headerIndex + 1;
+      
+      for (let i = startIndex; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line || !line.includes('|')) continue;
+        
+        // Skip separator rows (lines with only dashes and pipes)
+        if (line.match(/^[\s|:\-]+$/)) continue;
+
+        const rowCells = line.split('|').map(cell => cell.trim());
+        const row = rowCells.filter((cell, idx) => 
+          idx > 0 && idx < rowCells.length - 1
+        );
+        
+        if (row.length === headers.length) {
+          rows.push(row);
+        }
+      }
+
+      if (headers.length === 0) return null;
+
+      return { headers, rows };
+    } catch (error) {
+      console.error("Error parsing markdown table:", error);
+      return null;
+    }
+  };
+
   const parseGeneratedData = (data: any) => {
     const sections: ParsedSection[] = [];
 
-    const extractedContent =
+    // Extract compliance_items.value
+    let complianceItemsContent: string | null = null;
+    
+    // Try old format: data["1"].extracted_content[0].fields[].compliance_items.value
+    if (data?.["1"]?.extracted_content?.[0]?.fields && Array.isArray(data["1"].extracted_content[0].fields)) {
+      const complianceField = data["1"].extracted_content[0].fields.find(
+        (field: any) => field.compliance_items?.value
+      );
+      if (complianceField) {
+        complianceItemsContent = complianceField.compliance_items.value;
+      }
+    }
+
+    // Try new RFP_AI format: data.fields[].compliance_items.value
+    if (!complianceItemsContent && data?.fields && Array.isArray(data.fields)) {
+      const complianceField = data.fields.find(
+        (field: any) => field.compliance_items?.value
+      );
+      if (complianceField) {
+        complianceItemsContent = complianceField.compliance_items.value;
+      }
+    }
+
+    // Try old format first: data["1"].extracted_content[0].fields[0].generated_data.value
+    let extractedContent =
       data?.["1"]?.extracted_content?.[0]?.fields?.[0]?.generated_data?.value;
 
+    // If not found, try new RFP_AI format: data.fields[].generated_report.value
+    if (!extractedContent && data?.fields && Array.isArray(data.fields)) {
+      const generatedReportField = data.fields.find(
+        (field: any) => field.generated_report?.value
+      );
+      if (generatedReportField) {
+        extractedContent = generatedReportField.generated_report.value;
+      }
+    }
+
     if (!extractedContent) {
-      console.warn("No generated_data found in response");
+      console.warn("No generated_data found in response. Data structure:", JSON.stringify(data, null, 2));
       return;
     }
 
@@ -860,6 +961,28 @@ export default function V1EditorPage({
       }
     });
 
+    // Add compliance items as a separate section if available
+    if (complianceItemsContent) {
+      const complianceTable = parseMarkdownTable(complianceItemsContent);
+      if (complianceTable) {
+        sections.push({
+          title: "Compliance Items",
+          content: complianceItemsContent,
+          level: 1,
+          type: "table",
+          tableData: complianceTable,
+        });
+      } else {
+        // If markdown table parsing fails, add as text
+        sections.push({
+          title: "Compliance Items",
+          content: complianceItemsContent,
+          level: 1,
+          type: "text",
+        });
+      }
+    }
+
     setParsedSections(sections);
   };
 
@@ -946,12 +1069,36 @@ export default function V1EditorPage({
     setHasChanges(true);
   };
 
+  const tableToMarkdown = (tableData: { headers: string[]; rows: string[][] }): string => {
+    const { headers, rows } = tableData;
+    let markdown = "| " + headers.join(" | ") + " |\n";
+    markdown += "| " + headers.map(() => "---").join(" | ") + " |\n";
+    rows.forEach((row) => {
+      markdown += "| " + row.join(" | ") + " |\n";
+    });
+    return markdown.trim();
+  };
+
   const saveV1 = async () => {
     if (!v1Data || !parsedSections.length) return;
 
     setSaving(true);
     try {
-      const reconstructedContent = parsedSections
+      // Separate compliance items section from other sections
+      const complianceSectionIndex = parsedSections.findIndex(
+        (section) => section.title === "Compliance Items"
+      );
+      
+      const mainSections = complianceSectionIndex >= 0
+        ? parsedSections.filter((_, index) => index !== complianceSectionIndex)
+        : parsedSections;
+      
+      const complianceSection = complianceSectionIndex >= 0
+        ? parsedSections[complianceSectionIndex]
+        : null;
+
+      // Reconstruct main content (excluding compliance items)
+      const reconstructedContent = mainSections
         .map((section) => {
           let header = "";
           if (section.level === 1) header = `**${section.title}**`;
@@ -983,13 +1130,75 @@ export default function V1EditorPage({
         })
         .join("\n\n");
 
+      // Reconstruct compliance items as markdown table
+      let reconstructedComplianceItems = "";
+      if (complianceSection) {
+        if (complianceSection.type === "table" && complianceSection.tableData) {
+          reconstructedComplianceItems = tableToMarkdown(complianceSection.tableData);
+        } else {
+          reconstructedComplianceItems = complianceSection.content;
+        }
+      }
+
       const updatedData = JSON.parse(JSON.stringify(v1Data));
+      
+      // Update generated_data (main content)
+      // Handle old format
       if (
         updatedData?.["1"]?.extracted_content?.[0]?.fields?.[0]
           ?.generated_data
       ) {
         updatedData["1"].extracted_content[0].fields[0].generated_data.value =
           reconstructedContent;
+        
+        // Update compliance_items in old format
+        if (reconstructedComplianceItems) {
+          const fields = updatedData["1"].extracted_content[0].fields;
+          let complianceFieldIndex = fields.findIndex(
+            (field: any) => field.compliance_items
+          );
+          
+          if (complianceFieldIndex >= 0) {
+            fields[complianceFieldIndex].compliance_items.value = reconstructedComplianceItems;
+          } else {
+            // Add compliance_items field if it doesn't exist
+            fields.push({
+              compliance_items: {
+                value: reconstructedComplianceItems,
+                boundary: ""
+              }
+            });
+          }
+        }
+      }
+      // Handle new RFP_AI format
+      else if (updatedData?.fields && Array.isArray(updatedData.fields)) {
+        const generatedReportIndex = updatedData.fields.findIndex(
+          (field: any) => field.generated_report?.value
+        );
+        if (generatedReportIndex !== -1) {
+          updatedData.fields[generatedReportIndex].generated_report.value =
+            reconstructedContent;
+        }
+        
+        // Update compliance_items in new format
+        if (reconstructedComplianceItems) {
+          let complianceFieldIndex = updatedData.fields.findIndex(
+            (field: any) => field.compliance_items
+          );
+          
+          if (complianceFieldIndex >= 0) {
+            updatedData.fields[complianceFieldIndex].compliance_items.value = reconstructedComplianceItems;
+          } else {
+            // Add compliance_items field if it doesn't exist
+            updatedData.fields.push({
+              compliance_items: {
+                value: reconstructedComplianceItems,
+                boundary: ""
+              }
+            });
+          }
+        }
       }
 
       const response = await apiPut(`/api/documents/${id}/v1-content`, { content: updatedData });
@@ -1204,7 +1413,7 @@ export default function V1EditorPage({
         {section.type === "table" && section.tableData ? (
           // === TABLE BRANCH ===
           <div className="space-y-4">
-            <div className="text-sm text-slate-600 mb-2">Table Editor</div>
+            <div className="text-sm text-slate-600 mb-2">Functional / Non-Functional Requirement</div>
             <div className="overflow-x-auto">
               <table className="w-full border border-slate-200 rounded-lg">
                 <thead>
@@ -1232,25 +1441,30 @@ export default function V1EditorPage({
                       </th>
                     ))}
                     {permissions.canEdit && (
-                      <th className="border border-slate-200 p-2 w-10">
-                        <button
-                          onClick={() => {
-                            const newTableData = { ...section.tableData! };
-                            newTableData.headers.push("New Column");
-                            newTableData.rows = newTableData.rows.map((row) => [
-                              ...row,
-                              "",
-                            ]);
-                            updateSectionContent(
-                              index,
-                              section.content,
-                              newTableData
-                            );
-                          }}
-                          className="text-green-600 hover:text-green-700"
-                        >
-                          +
-                        </button>
+                      <th className="border border-slate-200 p-2 bg-slate-50 font-semibold text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          <span>Action</span>
+                          <button
+                            onClick={() => {
+                              const newTableData = { ...section.tableData! };
+                              newTableData.headers.push("New Column");
+                              newTableData.rows = newTableData.rows.map((row) => [
+                                ...row,
+                                "",
+                              ]);
+                              updateSectionContent(
+                                index,
+                                section.content,
+                                newTableData
+                              );
+                            }}
+                            className="text-green-600 hover:text-green-700 text-sm flex items-center gap-1"
+                            title="Add Column"
+                          >
+                            <span>+</span>
+                            <span>Add Column</span>
+                          </button>
+                        </div>
                       </th>
                     )}
                   </tr>

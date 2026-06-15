@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
+import { 
+  canViewAllVendorQualifications, 
+  canViewVendorQualifications,
+  canEditVendorQualification,
+  canDeleteVendorQualification,
+  UserRole 
+} from '@/lib/vendorPermissions';
 
-// GET - Fetch single vendor qualification
+// GET - Fetch single vendor qualification (role-based access)
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -12,6 +19,14 @@ export async function GET(
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user can view vendor qualifications
+    if (!canViewVendorQualifications(session.user.role as UserRole)) {
+      return NextResponse.json(
+        { error: 'You do not have permission to view vendor qualifications' },
+        { status: 403 }
+      );
     }
 
     const { id } = await context.params;
@@ -53,6 +68,15 @@ export async function GET(
       );
     }
 
+    // Role-based access: Users can only view their own unless ADMIN/APPROVER
+    const canViewAll = canViewAllVendorQualifications(session.user.role as UserRole);
+    if (!canViewAll && qualification.submittedBy !== session.user.id) {
+      return NextResponse.json(
+        { error: 'You do not have permission to view this vendor qualification' },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.json(qualification);
 
   } catch (error) {
@@ -64,7 +88,7 @@ export async function GET(
   }
 }
 
-// PUT - Update vendor qualification
+// PUT - Update vendor qualification (role-based)
 export async function PUT(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -93,10 +117,15 @@ export async function PUT(
       );
     }
 
-    // Only allow editing if it's a draft or the user is the submitter
-    if (existing.status !== 'DRAFT' && existing.submittedBy !== session.user.id) {
+    // Check edit permissions using RBAC
+    if (!canEditVendorQualification(
+      session.user.role as UserRole,
+      existing.submittedBy,
+      session.user.id,
+      existing.status as any
+    )) {
       return NextResponse.json(
-        { error: 'Cannot edit submitted qualification' },
+        { error: 'You do not have permission to edit this vendor qualification. Only DRAFT status can be edited, and only by the owner or ADMIN.' },
         { status: 403 }
       );
     }
@@ -153,7 +182,7 @@ export async function PUT(
   }
 }
 
-// DELETE - Delete vendor qualification
+// DELETE - Delete vendor qualification (role-based)
 export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -178,11 +207,15 @@ export async function DELETE(
       );
     }
 
-    // Only allow deletion if it's a draft and user is the submitter or admin
-    const isAdmin = session.user.userType === 'ADMIN';
-    if (existing.status !== 'DRAFT' && !isAdmin) {
+    // Check delete permissions using RBAC
+    if (!canDeleteVendorQualification(
+      session.user.role as UserRole,
+      existing.submittedBy,
+      session.user.id,
+      existing.status as any
+    )) {
       return NextResponse.json(
-        { error: 'Cannot delete submitted qualification' },
+        { error: 'You do not have permission to delete this vendor qualification. Only ADMIN can delete submitted qualifications, or owners can delete their own DRAFT.' },
         { status: 403 }
       );
     }

@@ -6,18 +6,30 @@ import { useRouter } from "next/navigation";
 import { getSimplePermissions } from "@/lib/simplePermissions";
 import { getFileIcon } from "@/lib/file-utils";
 import { apiPost } from "@/lib/api";
+import VendorFieldsSelection from "@/components/document/VendorFieldsSelection";
+
+type UploadMode = "document" | "quick-proposal";
 
 export default function DocumentUploadPage() {
   const { data: session } = useSession();
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [uploadMode, setUploadMode] = useState<UploadMode>("document");
+  const [proposalType, setProposalType] = useState<string>("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [useRfpAi, setUseRfpAi] = useState(false); // Checkbox state for layout_id
+  const [selectedVendorFields, setSelectedVendorFields] = useState<string[]>([]);
   const [formData, setFormData] = useState({
     customerName: "",
     uploadedDate: new Date().toISOString().split('T')[0], // Today's date
     description: "",
     tags: "",
+    contactName: "",
+    designation: "",
+    emailAddress: "",
+    mobileNumber: "",
+    validUntil: "",
   });
   const [isUploading, setIsUploading] = useState(false);
   const [isGeneratingV1, setIsGeneratingV1] = useState(false);
@@ -145,13 +157,52 @@ export default function DocumentUploadPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedFile) {
-      setError("Please select a file to upload");
+    if (!formData.customerName.trim()) {
+      setError("Customer name is required");
       return;
     }
 
-    if (!formData.customerName.trim()) {
-      setError("Customer name is required");
+    // Validate required contact fields
+    if (!formData.contactName.trim()) {
+      setError("Contact name is required");
+      return;
+    }
+
+    if (!formData.designation.trim()) {
+      setError("Designation is required");
+      return;
+    }
+
+    if (!formData.emailAddress.trim()) {
+      setError("Email address is required");
+      return;
+    }
+
+    if (!formData.mobileNumber.trim()) {
+      setError("Mobile number is required");
+      return;
+    }
+
+    if (!formData.validUntil) {
+      setError("Valid until date is required");
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(formData.emailAddress.trim())) {
+      setError("Please enter a valid email address");
+      return;
+    }
+
+    // Validate proposal type for quick proposal mode
+    if (uploadMode === "quick-proposal" && !proposalType.trim()) {
+      setError("Proposal type is required");
+      return;
+    }
+
+    if (uploadMode === "document" && !selectedFile) {
+      setError("Please select a file to upload");
       return;
     }
 
@@ -159,30 +210,63 @@ export default function DocumentUploadPage() {
     setError("");
 
     try {
-      // Convert file to base64
-      const base64Content = await fileToBase64(selectedFile);
-      
-      // Prepare upload data - simplified for external API
-      const uploadData = {
-        fileName: selectedFile.name,
-        fileContent: base64Content,
-        customerName: formData.customerName.trim(),
-      };
+      if (uploadMode === "quick-proposal") {
+        // Quick Proposal Generation Mode
+        const proposalData = {
+          customerName: formData.customerName.trim(),
+          proposalType,
+          description: formData.description.trim(),
+          tags: formData.tags.trim(),
+          contactName: formData.contactName.trim(),
+          designation: formData.designation.trim(),
+          emailAddress: formData.emailAddress.trim(),
+          mobileNumber: formData.mobileNumber.trim(),
+          validUntil: formData.validUntil,
+          selectedVendorFields: selectedVendorFields,
+        };
 
-      // Upload document
-      const response = await apiPost('/api/documents', uploadData);
+        const response = await apiPost('/api/documents/quick-proposal', proposalData);
+        const result = await response.json();
 
-      const result = await response.json();
-
-      if (response.ok) {
-        // Redirect to documents list after successful upload
-        router.push('/documents?uploaded=true');
+        if (response.ok) {
+          router.push(`/documents/${result.document.id}?generated=true`);
+        } else {
+          setError(result.error || 'Proposal generation failed');
+        }
       } else {
-        setError(result.error || 'Upload failed');
+        // Document Upload Mode
+        if (!selectedFile) {
+          setError("Please select a file to upload");
+          return;
+        }
+
+        const base64Content = await fileToBase64(selectedFile);
+        
+        const uploadData = {
+          fileName: selectedFile.name,
+          fileContent: base64Content,
+          customerName: formData.customerName.trim(),
+          contactName: formData.contactName.trim(),
+          designation: formData.designation.trim(),
+          emailAddress: formData.emailAddress.trim(),
+          mobileNumber: formData.mobileNumber.trim(),
+          validUntil: formData.validUntil,
+          layoutId: useRfpAi ? "RFP_AI" : "RFP",
+          selectedVendorFields: selectedVendorFields,
+        };
+
+        const response = await apiPost('/api/documents', uploadData);
+        const result = await response.json();
+
+        if (response.ok) {
+          router.push('/documents?uploaded=true');
+        } else {
+          setError(result.error || 'Upload failed');
+        }
       }
     } catch (error) {
-      console.error('Upload error:', error);
-      setError('An error occurred during upload');
+      console.error('Error:', error);
+      setError('An error occurred during processing');
     } finally {
       setIsUploading(false);
     }
@@ -473,6 +557,7 @@ export default function DocumentUploadPage() {
     }
   };
 
+
   return (
     <div className="space-y-8 font-lexend">
       {/* Header */}
@@ -482,9 +567,13 @@ export default function DocumentUploadPage() {
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
             <div className="space-y-2">
               <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 via-blue-700 to-indigo-700 bg-clip-text text-transparent">
-                Upload Document
+                {uploadMode === "quick-proposal" ? "Quick Proposal Generation" : "Upload Document"}
               </h1>
-              <p className="text-slate-600 font-medium">Upload and manage your documents with customer information</p>
+              <p className="text-slate-600 font-medium">
+                {uploadMode === "quick-proposal" 
+                  ? "Generate proposals instantly by entering customer details" 
+                  : "Upload and manage your documents with customer information"}
+              </p>
               <div className="w-16 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"></div>
             </div>
             
@@ -503,14 +592,84 @@ export default function DocumentUploadPage() {
         </div>
       </div>
 
+      
+
+      {/* Mode Toggle */}
+      <div className="bg-white/90 backdrop-blur-xl border border-white/30 rounded-xl shadow-lg p-6">
+        <div className="flex items-center justify-center">
+          <div className="inline-flex rounded-lg border border-slate-200 p-1 bg-slate-50">
+            <button
+              type="button"
+              onClick={() => {
+                setUploadMode("document");
+                setError("");
+              }}
+              className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                uploadMode === "document"
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <span className="flex items-center space-x-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                <span>Upload Document</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setUploadMode("quick-proposal");
+                setSelectedFile(null);
+                setProposalType("");
+                setError("");
+              }}
+              className={`px-6 py-3 rounded-lg text-sm font-semibold transition-all duration-200 ${
+                uploadMode === "quick-proposal"
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <span className="flex items-center space-x-2">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <span>Quick Proposal</span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Upload Form */}
       <div className="bg-white/90 backdrop-blur-xl border border-white/30 rounded-xl shadow-lg">
         <form onSubmit={handleSubmit} className="p-8 space-y-8">
-          {/* File Upload Section */}
-          <div className="space-y-4">
-            <label className="block text-sm font-semibold text-slate-700">
-              Document File <span className="text-red-500">*</span>
-            </label>
+          {/* Proposal Type Input - Only for Quick Proposal Mode */}
+          {uploadMode === "quick-proposal" && (
+            <div className="space-y-2">
+              <label htmlFor="proposalType" className="block text-sm font-semibold text-slate-700">
+                Proposal Type <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                id="proposalType"
+                name="proposalType"
+                value={proposalType}
+                onChange={(e) => setProposalType(e.target.value)}
+                className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                placeholder="Enter proposal type (e.g., Mobile Banking Solution, Loan Management System)"
+                required
+              />
+            </div>
+          )}
+
+          {/* File Upload Section - Only for Document Upload Mode */}
+          {uploadMode === "document" && (
+            <div className="space-y-4">
+              <label className="block text-sm font-semibold text-slate-700">
+                Document File <span className="text-red-500">*</span>
+              </label>
             
             {!selectedFile ? (
               <div
@@ -574,7 +733,28 @@ export default function DocumentUploadPage() {
                 </div>
               </div>
             )}
-          </div>
+            
+            {/* Layout ID Checkbox - Only shown when file is selected */}
+            {selectedFile && (
+              <div className="flex items-center space-x-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
+                <input
+                  type="checkbox"
+                  id="useRfpAi"
+                  checked={useRfpAi}
+                  onChange={(e) => setUseRfpAi(e.target.checked)}
+                  className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer"
+                />
+                <label
+                  htmlFor="useRfpAi"
+                  className="text-sm font-medium text-slate-700 cursor-pointer flex-1"
+                >
+                  Use RFP AI Layout
+                </label>
+                
+              </div>
+            )}
+            </div>
+          )}
 
           {/* Customer Information */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -607,6 +787,98 @@ export default function DocumentUploadPage() {
                 className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
                 required
               />
+            </div>
+          </div>
+
+          {/* Contact Information Section */}
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-200">
+              <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <h3 className="text-lg font-semibold text-slate-800">Bidder Contact Information</h3>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label htmlFor="contactName" className="block text-sm font-semibold text-slate-700">
+                  Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="contactName"
+                  name="contactName"
+                  value={formData.contactName}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  placeholder="Enter name"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="designation" className="block text-sm font-semibold text-slate-700">
+                  Designation <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="designation"
+                  name="designation"
+                  value={formData.designation}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  placeholder="Enter designation"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="emailAddress" className="block text-sm font-semibold text-slate-700">
+                  Email Address <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  id="emailAddress"
+                  name="emailAddress"
+                  value={formData.emailAddress}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  placeholder="Enter email address"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="mobileNumber" className="block text-sm font-semibold text-slate-700">
+                  Mobile Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  id="mobileNumber"
+                  name="mobileNumber"
+                  value={formData.mobileNumber}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  placeholder="Enter mobile number"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="validUntil" className="block text-sm font-semibold text-slate-700">
+                  Valid Until <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  id="validUntil"
+                  name="validUntil"
+                  value={formData.validUntil}
+                  onChange={handleInputChange}
+                  className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  placeholder="Select validity date"
+                  required
+                />
+              </div>
             </div>
           </div>
 
@@ -643,6 +915,14 @@ export default function DocumentUploadPage() {
             <p className="text-xs text-slate-500">Separate multiple tags with commas</p>
           </div>
 
+          {/* Vendor Fields Selection */}
+          <div className="bg-white/90 backdrop-blur-xl border border-white/30 rounded-xl shadow-lg p-6">
+            <VendorFieldsSelection
+              selectedFields={selectedVendorFields}
+              onSelectionChange={setSelectedVendorFields}
+            />
+          </div>
+
           {/* Error Message */}
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -668,20 +948,31 @@ export default function DocumentUploadPage() {
             
             <button
               type="submit"
-              disabled={isUploading || !selectedFile}
+              disabled={isUploading || (uploadMode === "document" && !selectedFile)}
               className="group relative rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
               {isUploading ? (
                 <span className="flex items-center space-x-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>Uploading...</span>
+                  <span>{uploadMode === "quick-proposal" ? "Generating..." : "Uploading..."}</span>
                 </span>
               ) : (
                 <span className="flex items-center space-x-2">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                  </svg>
-                  <span>Upload Document</span>
+                  {uploadMode === "quick-proposal" ? (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <span>Generate Proposal</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                      <span>Upload Document</span>
+                    </>
+                  )}
                 </span>
               )}
             </button>

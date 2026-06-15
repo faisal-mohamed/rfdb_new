@@ -848,7 +848,7 @@ export default function DocumentDetailsClient({ id }: Props) {
                 </div>
                 <div className="space-y-4">
                   {[
-                    { label: "Layout ID", value: doc.layoutId, icon: "📄" },
+                    { label: "Layout ID", value: doc.layoutId || "Not available", icon: "📄" },
                     {
                       label: "WorkFlow Status",
                       value: doc.workflowStatus,

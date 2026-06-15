@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { VendorQualificationFormData, VendorQualificationStatus } from "@/types/vendor";
 import { apiPost, apiPut } from "@/lib/api";
+import { useToast } from "@/components/ui/Toast";
 
 // Import form sections (we'll create these next)
 import GeneralInfoSection from "@/components/vendor-qualification/GeneralInfoSection";
@@ -29,10 +30,11 @@ const STEPS = [
 export default function VendorQualificationPage() {
   const { data: session } = useSession();
   const router = useRouter();
+  const { showToast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<Partial<VendorQualificationFormData>>({
     organizationName: "",
-    incorporationDate: "",
+    incorporationDate: "", // Will be validated before submit
     postalAddress: "",
     telephone: "",
     email: "",
@@ -127,7 +129,7 @@ export default function VendorQualificationPage() {
 
   const handleSubmit = async () => {
     if (!qualificationId) {
-      alert('Please save your draft first');
+      showToast({ variant: "error", message: "Please save your draft first" });
       return;
     }
 
@@ -136,15 +138,15 @@ export default function VendorQualificationPage() {
       const response = await apiPost(`/api/vendor-qualification/${qualificationId}/submit`);
 
       if (response.ok) {
-        alert('Vendor qualification submitted successfully!');
+        showToast({ variant: "success", message: "Vendor qualification submitted successfully" });
         router.push('/vendor-qualification/list');
       } else {
         const error = await response.json();
-        alert(error.error || 'Failed to submit');
+        showToast({ variant: "error", message: error.error || "Failed to submit" });
       }
     } catch (error) {
       console.error('Error submitting:', error);
-      alert('Failed to submit qualification');
+      showToast({ variant: "error", message: "Failed to submit qualification" });
     } finally {
       setIsSubmitting(false);
     }
@@ -180,10 +182,10 @@ export default function VendorQualificationPage() {
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
             <div className="space-y-2">
               <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-800 via-blue-700 to-indigo-700 bg-clip-text text-transparent">
-                Vendor Business Details
+              Vendor Details
               </h1>
               <p className="text-slate-600 font-medium">
-                Complete all sections to submit your vendor Business Details
+                Complete all sections to submit your vendor details
               </p>
               <div className="w-16 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"></div>
             </div>

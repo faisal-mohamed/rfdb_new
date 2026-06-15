@@ -57,8 +57,10 @@ export async function POST(
     }
     
     console.log("v1Data: ", v1Data)
+    console.log("v1Data structure:", JSON.stringify(v1Data, null, 2));
 
     // Store V1 in database
+    try {
     const documentVersion = await prisma.documentVersion.create({
       data: {
         documentId: processId, // Now optional, stores external process ID
@@ -72,10 +74,19 @@ export async function POST(
       }
     });
 
+      console.log("DocumentVersion created successfully:", documentVersion.id);
+
     return NextResponse.json({
       message: 'V1 generated and stored successfully',
       version: documentVersion
     });
+    } catch (dbError: any) {
+      console.error("Database error storing V1:", dbError);
+      return NextResponse.json(
+        { error: 'Failed to store V1 in database', details: dbError.message },
+        { status: 500 }
+      );
+    }
 
   } catch (error) {
     console.error('Error generating V1:', error);

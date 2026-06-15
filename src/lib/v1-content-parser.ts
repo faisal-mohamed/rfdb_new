@@ -3,9 +3,28 @@
 
 export interface CellData {
   text?: string;
+  images?: Array<{
+    src: string;
+    alt?: string;
+    style?: string;
+    width?: number;
+    height?: number;
+  }>;
+  // Legacy support - if single image, can use this
   image?: {
     src: string;
     alt?: string;
+    style?: string;
+    width?: number;
+    height?: number;
+  };
+  // Cell styling
+  style?: {
+    textAlign?: 'left' | 'center' | 'right' | 'justify';
+    verticalAlign?: 'top' | 'middle' | 'bottom';
+    padding?: number; // in points (twips / 20)
+    fontWeight?: 'bold' | 'normal';
+    fontSize?: string;
   };
 }
 
@@ -17,10 +36,12 @@ export interface ParsedSection {
     headerRows?: CellData[][]; // Multiple header rows with images support
     headers?: string[]; // Backward compatibility
     rows: CellData[][]; // Rows with images support
+    columnWidths?: number[]; // Column widths from colgroup (percentages)
   };
   imageData?: {
     src: string; // base64 data URI
     alt?: string;
+    style?: string;
     width?: number;
     height?: number;
   };
@@ -32,7 +53,21 @@ export interface ParsedSection {
 }
 
 export function extractV1Content(v1Data: any): string {
-  return v1Data?.["1"]?.extracted_content?.[0]?.fields?.[0]?.generated_data?.value || '';
+  let content = v1Data?.["1"]?.extracted_content?.[0]?.fields?.[0]?.generated_data?.value || '';
+  
+  // Also extract compliance_items if available
+  const fields = v1Data?.["1"]?.extracted_content?.[0]?.fields || [];
+  const complianceField = fields.find((field: any) => field.compliance_items?.value);
+  
+  if (complianceField?.compliance_items?.value) {
+    // Add a header for compliance items and append the markdown table
+    const complianceContent = complianceField.compliance_items.value.trim();
+    if (complianceContent) {
+      content += '\n\n**COMPLIANCE ITEMS**\n\n' + complianceContent;
+    }
+  }
+
+  return content;
 }
 
 export function parseV1Content(content: string): ParsedSection[] {
@@ -196,6 +231,18 @@ export function parseV1Content(content: string): ParsedSection[] {
       continue;
     }
 
+    // Parse markdown table (pipe-separated: | col1 | col2 |)
+    const isMarkdownTableRow = trimmedLine.startsWith('|') && trimmedLine.endsWith('|') && trimmedLine.includes('|');
+    if (isMarkdownTableRow) {
+      const tableResult = parseMarkdownTable(lines, i);
+      if (tableResult.section) {
+        console.log(`  Markdown table parsed successfully with ${tableResult.section.tableData?.headerRows?.length || 0} header rows and ${tableResult.section.tableData?.rows.length || 0} data rows`);
+        sections.push(tableResult.section);
+      }
+      i = tableResult.endIndex;
+      continue;
+    }
+
     // Parse list items
     if (trimmedLine.startsWith('• ') || trimmedLine.startsWith('- ') || trimmedLine.match(/^\*\s+/)) {
       const listItems: string[] = [];
@@ -219,10 +266,10 @@ export function parseV1Content(content: string): ParsedSection[] {
       continue;
     }
 
-    // Parse paragraph
+    // Parse paragraph - preserve raw markdown for inline formatting parsing
     sections.push({
       type: 'paragraph',
-      content: processInlineFormatting(trimmedLine),
+      content: trimmedLine,
     });
     i++;
   }
@@ -322,23 +369,94 @@ function parseHtmlTable(lines: string[], startIndex: number): { section: ParsedS
   return { section: null, endIndex: i };
 }
 
-function parseCellContent(cellHtml: string): CellData {
-  // Check if cell contains an image
-  const imgMatch = cellHtml.match(/<img[^>]*src=["']([^"']+)["'][^>]*(?:alt=["']([^"']*)["'])?[^>]*\/?>/i);
+function parseCellContent(cellHtml: string, cellTag?: string): CellData {
+  // Extract cell styles from the opening tag (<th> or <td>)
+  const cellStyle: CellData['style'] = {};
   
-  if (imgMatch) {
-    // Cell contains an image
-    return {
-      image: {
-        src: imgMatch[1],
-        alt: imgMatch[2] || '',
-      },
-      text: '', // Empty text for image cells
-    };
+  if (cellTag) {
+    // Extract style attribute
+    const styleMatch = cellTag.match(/style\s*=\s*["']([^"']+)["']/i);
+    if (styleMatch) {
+      const styleStr = styleMatch[1];
+      
+      // Extract text-align
+      const textAlignMatch = styleStr.match(/text-align\s*:\s*(\w+)/i);
+      if (textAlignMatch) {
+        const align = textAlignMatch[1].toLowerCase();
+        if (['left', 'center', 'right', 'justify'].includes(align)) {
+          cellStyle.textAlign = align as 'left' | 'center' | 'right' | 'justify';
+        }
+      }
+      
+      // Extract vertical-align
+      const verticalAlignMatch = styleStr.match(/vertical-align\s*:\s*(\w+)/i);
+      if (verticalAlignMatch) {
+        const valign = verticalAlignMatch[1].toLowerCase();
+        if (['top', 'middle', 'bottom'].includes(valign)) {
+          cellStyle.verticalAlign = valign as 'top' | 'middle' | 'bottom';
+        }
+      }
+      
+      // Extract padding (convert px to points: 1px = 0.75pt, but we'll use 1:1 for simplicity)
+      const paddingMatch = styleStr.match(/padding\s*:\s*([\d.]+)px/i);
+      if (paddingMatch) {
+        cellStyle.padding = parseFloat(paddingMatch[1]) * 20; // Convert px to twips (1px ≈ 20 twips)
+      }
+      
+      // Extract font-weight
+      const fontWeightMatch = styleStr.match(/font-weight\s*:\s*(bold|normal)/i);
+      if (fontWeightMatch) {
+        cellStyle.fontWeight = fontWeightMatch[1].toLowerCase() as 'bold' | 'normal';
+      }
+      
+      // Extract font-size
+      const fontSizeMatch = styleStr.match(/font-size\s*:\s*([\d.]+(?:pt|px|em)?)/i);
+      if (fontSizeMatch) {
+        cellStyle.fontSize = fontSizeMatch[1];
+      }
+    }
   }
   
-  // Cell contains text - clean it
+  // Extract ALL images from the cell (can be multiple)
+  const images: Array<{ src: string; alt?: string; style?: string }> = [];
+  
+  // More robust regex that captures img tags and extracts attributes in any order
+  // First, normalize multi-line img tags by replacing newlines with spaces
+  const normalizedHtml = cellHtml.replace(/\s+/g, ' ');
+  const imgTagRegex = /<img\s+([^>]+?)(?:\s*\/?>|\s*>)/gi;
+  let imgTagMatch;
+  
+  while ((imgTagMatch = imgTagRegex.exec(normalizedHtml)) !== null) {
+    const attributesStr = imgTagMatch[1];
+    
+    // Extract each attribute individually (order-independent)
+    const srcMatch = attributesStr.match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+    const altMatch = attributesStr.match(/\balt\s*=\s*["']([^"']*)["']/i);
+    const styleMatch = attributesStr.match(/\bstyle\s*=\s*["']([^"']+)["']/i);
+    
+    const imageData = {
+      src: srcMatch ? srcMatch[1] : '',
+      alt: altMatch ? altMatch[1] : undefined,
+      style: styleMatch ? styleMatch[1] : undefined,
+    };
+    
+    // Only add if we have a src
+    if (imageData.src) {
+      console.log(`  [IMAGE EXTRACTION] Found image in cell:`, {
+        src: imageData.src.substring(0, 50) + (imageData.src.length > 50 ? '...' : ''),
+        hasStyle: !!imageData.style,
+        stylePreview: imageData.style ? imageData.style.substring(0, 100) + (imageData.style.length > 100 ? '...' : '') : 'none',
+        rawAttributes: attributesStr.substring(0, 150),
+      });
+      images.push(imageData);
+    }
+  }
+  
+  // Extract text content - preserve structure but remove image tags
   let cleaned = cellHtml;
+  
+  // Remove image tags (keep the rest of the content)
+  cleaned = cleaned.replace(/<img[^>]*\/?>/gi, '');
   
   // Convert <br> and <br /> to newlines first
   cleaned = cleaned.replace(/<br\s*\/?>/gi, '\n');
@@ -347,7 +465,30 @@ function parseCellContent(cellHtml: string): CellData {
   cleaned = cleaned.replace(/<\/p>/gi, '\n');
   cleaned = cleaned.replace(/<p[^>]*>/gi, '');
   
-  // Remove other HTML tags
+  // Convert blockquote tags to newlines with indentation marker
+  cleaned = cleaned.replace(/<\/blockquote>/gi, '\n');
+  cleaned = cleaned.replace(/<blockquote[^>]*>/gi, '\n');
+  
+  // Convert list items to newlines with bullet marker
+  cleaned = cleaned.replace(/<\/li>/gi, '\n');
+  cleaned = cleaned.replace(/<li[^>]*>/gi, '• ');
+  
+  // Convert <ul> and <ol> to newlines
+  cleaned = cleaned.replace(/<\/[uo]l>/gi, '\n');
+  cleaned = cleaned.replace(/<[uo]l[^>]*>/gi, '\n');
+  
+  // Convert <hr> to separator
+  cleaned = cleaned.replace(/<hr\s*\/?>/gi, '\n---\n');
+  
+  // Convert <strong> and <b> to ** for bold
+  cleaned = cleaned.replace(/<\/strong>|<\/b>/gi, '**');
+  cleaned = cleaned.replace(/<strong[^>]*>|<b[^>]*>/gi, '**');
+  
+  // Convert <em> and <i> to * for italic
+  cleaned = cleaned.replace(/<\/em>|<\/i>/gi, '*');
+  cleaned = cleaned.replace(/<em[^>]*>|<i[^>]*>/gi, '*');
+  
+  // Remove other HTML tags but preserve their content
   cleaned = cleaned.replace(/<[^>]*>/g, '');
   
   // Decode HTML entities
@@ -371,7 +512,32 @@ function parseCellContent(cellHtml: string): CellData {
     .filter(line => line) // Remove empty lines
     .join('\n');
   
-  return { text: cleaned };
+  // Build result
+  const result: CellData = {};
+  
+  if (images.length > 0) {
+    result.images = images;
+    // For backward compatibility, also set image if only one
+    if (images.length === 1) {
+      result.image = images[0];
+    }
+  }
+  
+  if (cleaned) {
+    result.text = cleaned;
+  }
+  
+  // If no images and no text, return empty text to preserve cell structure
+  if (!result.images && !result.text) {
+    result.text = '';
+  }
+  
+  // Add cell styles if any were extracted
+  if (Object.keys(cellStyle).length > 0) {
+    result.style = cellStyle;
+  }
+  
+  return result;
 }
 
 // Legacy function for backward compatibility
@@ -380,10 +546,30 @@ function cleanCellContent(cell: string): string {
   return cellData.text || '';
 }
 
-function extractTableData(html: string): { headerRows?: CellData[][]; headers?: string[]; rows: CellData[][] } | null {
+function extractTableData(html: string): { headerRows?: CellData[][]; headers?: string[]; rows: CellData[][]; columnWidths?: number[] } | null {
   try {
     const headerRows: CellData[][] = [];
     const rows: CellData[][] = [];
+    let columnWidths: number[] | undefined;
+    
+    // Extract colgroup column widths if present
+    const colgroupMatch = html.match(/<colgroup>[\s\S]*?<\/colgroup>/i);
+    if (colgroupMatch) {
+      const colMatches = colgroupMatch[0].match(/<col[^>]*>/gi) || [];
+      columnWidths = colMatches.map(col => {
+        // Extract width from style attribute: style="width: 28%" or style="width:28%"
+        const widthMatch = col.match(/width\s*[:=]\s*["']?([\d.]+)%?["']?/i);
+        if (widthMatch) {
+          return parseFloat(widthMatch[1]);
+        }
+        return undefined;
+      }).filter((w): w is number => w !== undefined);
+      
+      // If we got column widths, use them; otherwise calculate equal widths
+      if (columnWidths.length === 0) {
+        columnWidths = undefined;
+      }
+    }
     
     // Try to extract headers from <thead>
     const headerMatch = html.match(/<thead>[\s\S]*?<\/thead>/i);
@@ -396,7 +582,10 @@ function extractTableData(html: string): { headerRows?: CellData[][]; headers?: 
         const parsedHeaderRow: CellData[] = [];
         
         for (const cell of headerCells) {
-          const cellData = parseCellContent(cell);
+          // Extract the opening tag for style parsing
+          const tagMatch = cell.match(/<th[^>]*>/i);
+          const cellTag = tagMatch ? tagMatch[0] : undefined;
+          const cellData = parseCellContent(cell, cellTag);
           
           // Check for colspan attribute
           const colspanMatch = cell.match(/colspan\s*=\s*["']?(\d+)["']?/i);
@@ -409,7 +598,7 @@ function extractTableData(html: string): { headerRows?: CellData[][]; headers?: 
             // First cell gets content, rest are empty placeholders
             parsedHeaderRow.push(cellData);
             for (let j = 1; j < colspan; j++) {
-              parsedHeaderRow.push({ text: '' });
+              parsedHeaderRow.push({ text: '' } as CellData);
             }
           }
         }
@@ -430,7 +619,10 @@ function extractTableData(html: string): { headerRows?: CellData[][]; headers?: 
         const row: CellData[] = [];
         
         for (const cell of cellMatches) {
-          const cellData = parseCellContent(cell);
+          // Extract the opening tag for style parsing
+          const tagMatch = cell.match(/<td[^>]*>/i);
+          const cellTag = tagMatch ? tagMatch[0] : undefined;
+          const cellData = parseCellContent(cell, cellTag);
           
           // Check for colspan attribute
           const colspanMatch = cell.match(/colspan\s*=\s*["']?(\d+)["']?/i);
@@ -443,7 +635,7 @@ function extractTableData(html: string): { headerRows?: CellData[][]; headers?: 
             // First cell gets content, rest are empty placeholders
             row.push(cellData);
             for (let j = 1; j < colspan; j++) {
-              row.push({ text: '' });
+              row.push({ text: '' } as CellData);
             }
           }
         }
@@ -471,12 +663,15 @@ function extractTableData(html: string): { headerRows?: CellData[][]; headers?: 
           const parsedHeaderRow: CellData[] = [];
           
           for (const cell of headerCells) {
-            const cellData = parseCellContent(cell);
+            // Extract the opening tag for style parsing
+            const tagMatch = cell.match(/<th[^>]*>/i);
+            const cellTag = tagMatch ? tagMatch[0] : undefined;
+            const cellData = parseCellContent(cell, cellTag);
             const colspanMatch = cell.match(/colspan\s*=\s*["']?(\d+)["']?/i);
             const colspan = colspanMatch ? parseInt(colspanMatch[1]) : 1;
             
             for (let i = 0; i < colspan; i++) {
-              parsedHeaderRow.push(i === 0 ? cellData : { text: '' });
+              parsedHeaderRow.push(i === 0 ? cellData : ({ text: '' } as CellData));
             }
           }
           
@@ -492,12 +687,15 @@ function extractTableData(html: string): { headerRows?: CellData[][]; headers?: 
         const row: CellData[] = [];
         
         for (const cell of cellMatches) {
-          const cellData = parseCellContent(cell);
+          // Extract the opening tag for style parsing (could be <td> or <th>)
+          const tagMatch = cell.match(/<t[dh][^>]*>/i);
+          const cellTag = tagMatch ? tagMatch[0] : undefined;
+          const cellData = parseCellContent(cell, cellTag);
           const colspanMatch = cell.match(/colspan\s*=\s*["']?(\d+)["']?/i);
           const colspan = colspanMatch ? parseInt(colspanMatch[1]) : 1;
           
           for (let i = 0; i < colspan; i++) {
-            row.push(i === 0 ? cellData : { text: '' });
+            row.push(i === 0 ? cellData : ({ text: '' } as CellData));
           }
         }
         
@@ -518,9 +716,9 @@ function extractTableData(html: string): { headerRows?: CellData[][]; headers?: 
       rows.forEach(r => r.forEach(cell => { if (cell.image) imageCount++; }));
       console.log(`  Table contains ${imageCount} images`);
       
-      // Return both headerRows and headers for backward compatibility
-      const flatHeaders = headerRows.length > 0 ? headerRows[headerRows.length - 1].map(c => c.text || '') : [];
-      return { headerRows, headers: flatHeaders, rows };
+        // Return both headerRows and headers for backward compatibility
+        const flatHeaders = headerRows.length > 0 ? headerRows[headerRows.length - 1].map(c => c.text || '') : [];
+        return { headerRows, headers: flatHeaders, rows, columnWidths };
     }
 
     console.log('No table data found in HTML');
@@ -555,6 +753,7 @@ function parseImage(lines: string[], startIndex: number): { section: ParsedSecti
   const imgHtml = imgLines.join('\n');
   const srcMatch = imgHtml.match(/src="([^"]*)"/);
   const altMatch = imgHtml.match(/alt="([^"]*)"/);
+  const styleMatch = imgHtml.match(/style="([^"]*)"/);
   
   if (srcMatch) {
     return {
@@ -564,6 +763,7 @@ function parseImage(lines: string[], startIndex: number): { section: ParsedSecti
         imageData: {
           src: srcMatch[1],
           alt: altMatch ? altMatch[1] : undefined,
+          style: styleMatch ? styleMatch[1] : undefined,
         },
       },
       endIndex: i,
@@ -705,5 +905,185 @@ export function parseInlineFormatting(text: string): TextPart[] {
   
   // Filter out empty parts
   return parts.filter(part => part.text.length > 0);
+}
+
+function parseMarkdownTable(lines: string[], startIndex: number): { section: ParsedSection | null; endIndex: number } {
+  let i = startIndex;
+  const tableLines: string[] = [];
+  
+  // Collect all markdown table rows (lines starting and ending with |)
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+    
+    // Check if this is a markdown table row
+    const isTableRow = trimmedLine.startsWith('|') && trimmedLine.endsWith('|') && trimmedLine.includes('|');
+    
+    if (isTableRow) {
+      tableLines.push(trimmedLine);
+      i++;
+    } else if (!trimmedLine) {
+      // Empty line might be end of table, but continue collecting if next line is also table row
+      if (i + 1 < lines.length) {
+        const nextLine = lines[i + 1].trim();
+        const isNextTableRow = nextLine.startsWith('|') && nextLine.endsWith('|') && nextLine.includes('|');
+        if (isNextTableRow) {
+          tableLines.push(trimmedLine); // Keep empty line
+          i++;
+        } else {
+          break; // End of table
+        }
+      } else {
+        break; // End of file
+      }
+    } else {
+      // Non-table line, end of table
+      break;
+    }
+    
+    // Safety limit
+    if (i - startIndex > 500) break;
+  }
+  
+  if (tableLines.length < 2) {
+    // Need at least header and separator
+    return { section: null, endIndex: i };
+  }
+  
+  console.log(`  Collected ${tableLines.length} lines for markdown table`);
+  
+  // Parse markdown table
+  const tableData = parseMarkdownTableData(tableLines);
+  
+  if (tableData) {
+    console.log(`  Markdown table data extracted successfully`);
+    return {
+      section: {
+        type: 'table',
+        content: '',
+        tableData,
+      },
+      endIndex: i,
+    };
+  }
+  
+  console.log(`  Markdown table data extraction returned null`);
+  return { section: null, endIndex: i };
+}
+
+function parseMarkdownTableData(tableLines: string[]): { headerRows?: CellData[][]; headers?: string[]; rows: CellData[][]; columnWidths?: number[] } | null {
+  try {
+    if (tableLines.length < 2) return null;
+    
+    // Find header row (first row with |)
+    let headerIndex = -1;
+    let separatorIndex = -1;
+    
+    for (let i = 0; i < tableLines.length; i++) {
+      const line = tableLines[i];
+      if (line.startsWith('|') && line.endsWith('|')) {
+        // Check if this is a separator row (contains only dashes, colons, spaces, and pipes)
+        if (line.match(/^\|[\s\-:]*\|$/)) {
+          if (headerIndex === -1) {
+            // Separator before header? Skip it
+            continue;
+          }
+          separatorIndex = i;
+          break;
+        } else if (headerIndex === -1) {
+          headerIndex = i;
+        }
+      }
+    }
+    
+    if (headerIndex === -1) return null;
+    
+    // Parse header row
+    const headerLine = tableLines[headerIndex];
+    const headerCells = headerLine
+      .split('|')
+      .map(cell => cell.trim())
+      .filter(cell => cell && !cell.match(/^[-:\s]+$/)); // Filter out empty cells and separators
+    
+    if (headerCells.length === 0) return null;
+    
+    // Create header row as CellData[]
+    const headerRow: CellData[] = headerCells.map(text => ({
+      text: text.trim(),
+      style: {
+        fontWeight: 'bold',
+        textAlign: 'left',
+        verticalAlign: 'middle',
+      },
+    }));
+    
+    // Determine where data rows start (after separator if present, or after header)
+    const dataStartIndex = separatorIndex !== -1 ? separatorIndex + 1 : headerIndex + 1;
+    
+    // Parse data rows
+    const rows: CellData[][] = [];
+    for (let i = dataStartIndex; i < tableLines.length; i++) {
+      const line = tableLines[i].trim();
+      if (!line || !line.startsWith('|') || !line.endsWith('|')) continue;
+      
+      // Skip separator rows (lines that contain only dashes, colons, spaces, and pipes)
+      // This pattern matches: |---|---| or |:---|:---:|---:|
+      if (line.match(/^\|[\s\-:]*\|$/)) {
+        continue;
+      }
+      
+      let cells = line
+        .split('|')
+        .map(cell => cell.trim());
+      
+      // Remove first and last empty cells (from leading/trailing |)
+      if (cells.length > 0 && cells[0] === '') cells.shift();
+      if (cells.length > 0 && cells[cells.length - 1] === '') cells.pop();
+      
+      // Filter out cells that contain only dashes/hyphens (placeholders)
+      // These are typically from markdown tables like |---|---| which should be empty cells
+      cells = cells.map(cell => {
+        // If cell contains only dashes, hyphens, spaces, or is empty, treat as empty
+        if (!cell || cell.match(/^[\s\-]+$/)) {
+          return '';
+        }
+        return cell;
+      });
+      
+      // Pad or trim cells to match header length
+      while (cells.length < headerCells.length) {
+        cells.push('');
+      }
+      if (cells.length > headerCells.length) {
+        cells = cells.slice(0, headerCells.length);
+      }
+      
+      const row: CellData[] = cells.map(text => ({
+        // Convert cells with only dashes to empty strings
+        text: text.match(/^[\s\-]+$/) ? '' : text.trim(),
+        style: {
+          textAlign: 'left',
+          verticalAlign: 'top',
+        },
+      }));
+      
+      // Skip rows where all cells are empty (no actual content)
+      const hasContent = row.some(cell => cell.text && cell.text.trim().length > 0);
+      if (!hasContent) {
+        continue; // Skip this empty row
+      }
+      
+      rows.push(row);
+    }
+    
+    return {
+      headerRows: [headerRow],
+      headers: headerCells,
+      rows,
+    };
+  } catch (error) {
+    console.error('Error parsing markdown table:', error);
+    return null;
+  }
 }
 

@@ -2,18 +2,31 @@
 
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { VendorQualification } from "@/types/vendor";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
+import { useToast } from "@/components/ui/Toast";
+import { 
+  canReviewVendorQualification, 
+  canApproveVendorQualification,
+  canEditVendorQualification,
+  UserRole 
+} from "@/lib/vendorPermissions";
 
 export default function VendorQualificationDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const { data: session } = useSession();
+  const { showToast } = useToast();
   const id = params.id as string;
   
   const [qualification, setQualification] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectComment, setRejectComment] = useState("");
 
   useEffect(() => {
     if (id) {
@@ -64,13 +77,95 @@ export default function VendorQualificationDetailPage() {
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
       } else {
-        alert('Failed to download document');
+        showToast({ variant: "error", message: "Failed to download document" });
       }
     } catch (error) {
       console.error('Download error:', error);
-      alert('Error downloading document');
+      showToast({ variant: "error", message: "Error downloading document" });
     }
   };
+
+  const handleReviewAction = async (action: 'review' | 'approve' | 'reject') => {
+    if (!session?.user?.id) {
+      showToast({ variant: "error", message: "You must be logged in to perform this action" });
+      return;
+    }
+
+    // For reject, show modal to get comment
+    if (action === 'reject') {
+      setShowRejectModal(true);
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const response = await apiPost(`/api/vendor-qualification/${id}/review`, {
+        action,
+        comment: action === 'reject' ? rejectComment : undefined
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setQualification(data.qualification);
+        showToast({ 
+          variant: "success", 
+          message: `Qualification ${action === 'review' ? 'moved to review' : 'approved'} successfully` 
+        });
+        if (action === 'approve') {
+          // Refresh the page data
+          fetchQualification();
+        }
+      } else {
+        const error = await response.json();
+        showToast({ variant: "error", message: error.error || `Failed to ${action} qualification` });
+      }
+    } catch (error) {
+      console.error(`Error ${action}ing qualification:`, error);
+      showToast({ variant: "error", message: `Error ${action}ing qualification` });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!rejectComment.trim()) {
+      showToast({ variant: "error", message: "Please provide a reason for rejection" });
+      return;
+    }
+
+    setIsProcessing(true);
+    setShowRejectModal(false);
+    try {
+      const response = await apiPost(`/api/vendor-qualification/${id}/review`, {
+        action: 'reject',
+        comment: rejectComment
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setQualification(data.qualification);
+        showToast({ variant: "success", message: "Qualification rejected successfully" });
+        setRejectComment('');
+        fetchQualification();
+      } else {
+        const error = await response.json();
+        showToast({ variant: "error", message: error.error || "Failed to reject qualification" });
+      }
+    } catch (error) {
+      console.error('Error rejecting qualification:', error);
+      showToast({ variant: "error", message: "Error rejecting qualification" });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // Check permissions (only after qualification is loaded)
+  const userRole = session?.user?.role as UserRole | undefined;
+  const canReview = userRole ? canReviewVendorQualification(userRole) : false;
+  const canApprove = userRole ? canApproveVendorQualification(userRole) : false;
+  const canEdit = qualification && userRole && session?.user?.id 
+    ? canEditVendorQualification(userRole, qualification.submittedBy, session.user.id, qualification.status)
+    : false;
 
   if (isLoading) {
     return (
@@ -123,8 +218,9 @@ export default function VendorQualificationDetailPage() {
               <div className="w-16 h-0.5 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full"></div>
             </div>
 
-            <div className="flex items-center gap-3">
-              {qualification.status === 'DRAFT' && (
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Edit button - only for DRAFT and if user has permission */}
+              {qualification.status === 'DRAFT' && canEdit && (
                 <Link
                   href={`/vendor-qualification?id=${id}`}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
@@ -132,6 +228,37 @@ export default function VendorQualificationDetailPage() {
                   Edit Draft
                 </Link>
               )}
+
+              {/* Review/Approve/Reject buttons - only for APPROVER/ADMIN */}
+              {qualification.status === 'SUBMITTED' && canReview && (
+                <button
+                  onClick={() => handleReviewAction('review')}
+                  disabled={isProcessing}
+                  className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProcessing ? 'Processing...' : 'Move to Review'}
+                </button>
+              )}
+
+              {qualification.status === 'UNDER_REVIEW' && canApprove && (
+                <>
+                  <button
+                    onClick={() => handleReviewAction('approve')}
+                    disabled={isProcessing}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isProcessing ? 'Processing...' : 'Approve'}
+                  </button>
+                  <button
+                    onClick={() => handleReviewAction('reject')}
+                    disabled={isProcessing}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isProcessing ? 'Processing...' : 'Reject'}
+                  </button>
+                </>
+              )}
+
               <Link
                 href="/vendor-qualification/list"
                 className="px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 transition-colors font-medium"
@@ -143,10 +270,14 @@ export default function VendorQualificationDetailPage() {
         </div>
       </div>
 
-      {/* General Information */}
+      {/* General Information - COMPLETE */}
       <div className="bg-white/90 backdrop-blur-xl border border-white/30 rounded-xl shadow-lg p-6">
         <h2 className="text-xl font-bold text-slate-900 mb-4 border-b pb-2">General Information</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <p className="text-sm font-semibold text-slate-600">Organization Name</p>
+            <p className="text-slate-900 mt-1 font-medium">{qualification.organizationName}</p>
+          </div>
           <div>
             <p className="text-sm font-semibold text-slate-600">Incorporation Date</p>
             <p className="text-slate-900 mt-1">{new Date(qualification.incorporationDate).toLocaleDateString()}</p>
@@ -159,31 +290,43 @@ export default function VendorQualificationDetailPage() {
             <p className="text-sm font-semibold text-slate-600">Telephone</p>
             <p className="text-slate-900 mt-1">{qualification.telephone}</p>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-slate-600">Company Auditors</p>
-            <p className="text-slate-900 mt-1">{qualification.companyAuditors}</p>
+          <div className="md:col-span-2">
+            <p className="text-sm font-semibold text-slate-600">Main Business Activity</p>
+            <p className="text-slate-900 mt-1">{qualification.mainBusinessActivity}</p>
           </div>
           <div className="md:col-span-2">
             <p className="text-sm font-semibold text-slate-600">Postal Address</p>
-            <p className="text-slate-900 mt-1">{qualification.postalAddress}</p>
+            <p className="text-slate-900 mt-1 whitespace-pre-line">{qualification.postalAddress}</p>
           </div>
           <div className="md:col-span-2">
-            <p className="text-sm font-semibold text-slate-600">Registered Office Location</p>
-            <p className="text-slate-900 mt-1">{qualification.registeredOfficeLocation}</p>
+            <p className="text-sm font-semibold text-slate-600">Location of Registered Office</p>
+            <p className="text-slate-900 mt-1 whitespace-pre-line">{qualification.registeredOfficeLocation}</p>
           </div>
           <div className="md:col-span-2">
-            <p className="text-sm font-semibold text-slate-600">Business Description</p>
-            <p className="text-slate-900 mt-1">{qualification.businessDescription}</p>
+            <p className="text-sm font-semibold text-slate-600">Brief Description of Business</p>
+            <p className="text-slate-900 mt-1 whitespace-pre-line">{qualification.businessDescription}</p>
+          </div>
+          <div className="md:col-span-2">
+            <p className="text-sm font-semibold text-slate-600">Name and Address of Bankers</p>
+            <p className="text-slate-900 mt-1 whitespace-pre-line">{qualification.bankersInfo}</p>
+          </div>
+          <div className="md:col-span-2">
+            <p className="text-sm font-semibold text-slate-600">Name and Address of Insurers</p>
+            <p className="text-slate-900 mt-1 whitespace-pre-line">{qualification.insurersInfo}</p>
+          </div>
+          <div className="md:col-span-2">
+            <p className="text-sm font-semibold text-slate-600">Company Auditors</p>
+            <p className="text-slate-900 mt-1">{qualification.companyAuditors}</p>
           </div>
         </div>
       </div>
 
-      {/* Banking Details */}
+      {/* Banking Details - COMPLETE */}
       <div className="bg-white/90 backdrop-blur-xl border border-white/30 rounded-xl shadow-lg p-6">
         <h2 className="text-xl font-bold text-slate-900 mb-4 border-b pb-2">Banking Details</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <p className="text-sm font-semibold text-slate-600">Bank</p>
+            <p className="text-sm font-semibold text-slate-600">Bank Name</p>
             <p className="text-slate-900 mt-1">{qualification.bankName}</p>
           </div>
           <div>
@@ -196,13 +339,17 @@ export default function VendorQualificationDetailPage() {
           </div>
           <div className="md:col-span-2">
             <p className="text-sm font-semibold text-slate-600">Authorized Signatories</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {qualification.authorizedSignatories?.map((signatory: string, index: number) => (
-                <span key={index} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm">
-                  {signatory}
-                </span>
-              ))}
-            </div>
+            {qualification.authorizedSignatories && qualification.authorizedSignatories.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {qualification.authorizedSignatories.map((signatory: string, index: number) => (
+                  <span key={index} className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-medium">
+                    {signatory}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-slate-400 mt-1">-</p>
+            )}
           </div>
         </div>
       </div>
@@ -344,32 +491,91 @@ export default function VendorQualificationDetailPage() {
         </div>
       )}
 
-      {/* Documents */}
+      {/* Documents - ORGANIZED BY CATEGORY */}
       {qualification.documents && qualification.documents.length > 0 && (
         <div className="bg-white/90 backdrop-blur-xl border border-white/30 rounded-xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-slate-900 mb-4 border-b pb-2">Uploaded Documents ({qualification.documents.length})</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {qualification.documents.map((doc: any) => (
-              <div key={doc.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50 hover:bg-slate-100 transition-colors">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900 text-sm">{doc.fileName}</p>
-                    <p className="text-xs text-slate-500 mt-1">{doc.documentType.replace(/_/g, ' ')}</p>
-                    <p className="text-xs text-slate-500">{(doc.fileSize / 1024).toFixed(2)} KB</p>
-                    <p className="text-xs text-slate-400">{new Date(doc.uploadedAt).toLocaleDateString()}</p>
+          <h2 className="text-xl font-bold text-slate-900 mb-4 border-b pb-2">Uploaded Documents ({qualification.documents.length} files)</h2>
+          {(() => {
+            const formatFileSize = (bytes: number) => {
+              if (bytes < 1024) return bytes + ' B';
+              if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(2) + ' KB';
+              return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+            };
+
+            const getDocumentCategory = (documentType: string) => {
+              if (documentType.includes('business_continuity') || documentType.includes('audited_accounts') || 
+                  documentType.includes('memorandum') || documentType.includes('cr12') ||
+                  documentType.includes('bank_confirmation') || documentType.includes('incorporation') ||
+                  documentType.includes('pacra') || documentType.includes('tax_certificate') ||
+                  documentType.includes('utility') || documentType.includes('reference_letter') ||
+                  documentType.includes('vat') || documentType.includes('gst') ||
+                  documentType.includes('trading') || documentType.includes('tax_clearance') ||
+                  documentType.includes('manufacturer') || documentType.includes('declaration')) {
+                return 'Compliance Documents';
+              }
+              if (documentType.includes('financial_statement') || documentType.includes('balance_sheet') ||
+                  documentType.includes('profit_loss') || documentType.includes('organogram') ||
+                  documentType.includes('organizational') || documentType.includes('personnel_cv')) {
+                return 'Financial Documents';
+              }
+              return 'Other Documents';
+            };
+
+            const groupedDocs = qualification.documents.reduce((acc: any, doc: any) => {
+              const category = getDocumentCategory(doc.documentType);
+              if (!acc[category]) acc[category] = [];
+              acc[category].push(doc);
+              return acc;
+            }, {});
+
+            return (
+              <div className="space-y-6">
+                {Object.entries(groupedDocs).map(([category, docs]: [string, any]) => (
+                  <div key={category}>
+                    <h3 className="text-lg font-semibold text-slate-700 mb-3">{category}</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {docs.map((doc: any) => (
+                        <div key={doc.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50 hover:bg-slate-100 transition-colors">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="font-semibold text-slate-900 text-sm truncate" title={doc.fileName}>
+                                {doc.fileName}
+                              </p>
+                              <p className="text-xs text-slate-500 mt-1">
+                                {doc.documentType.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                              </p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                {formatFileSize(doc.fileSize)} • {new Date(doc.uploadedAt).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => downloadDocument(doc.id, doc.fileName)}
+                            className="w-full mt-2 px-3 py-1.5 text-xs font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                            title="Download"
+                          >
+                            Download
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <button
-                    onClick={() => downloadDocument(doc.id, doc.fileName)}
-                    className="ml-2 p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    title="Download"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                  </button>
-                </div>
+                ))}
               </div>
-            ))}
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Show message if no documents */}
+      {(!qualification.documents || qualification.documents.length === 0) && (
+        <div className="bg-white/90 backdrop-blur-xl border border-white/30 rounded-xl shadow-lg p-6">
+          <h2 className="text-xl font-bold text-slate-900 mb-4 border-b pb-2">Uploaded Documents</h2>
+          <div className="text-center py-8">
+            <svg className="w-12 h-12 text-slate-400 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <p className="text-slate-500">No documents uploaded</p>
           </div>
         </div>
       )}
@@ -387,6 +593,44 @@ export default function VendorQualificationDetailPage() {
                 Submitted on {new Date(qualification.submittedAt).toLocaleString()} by{' '}
                 {qualification.submitter?.firstName} {qualification.submitter?.lastName}
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rejection Modal */}
+      {showRejectModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-xl font-bold text-slate-900 mb-4">Reject Vendor Qualification</h3>
+            <p className="text-sm text-slate-600 mb-4">
+              Please provide a reason for rejecting this vendor qualification:
+            </p>
+            <textarea
+              value={rejectComment}
+              onChange={(e) => setRejectComment(e.target.value)}
+              placeholder="Enter rejection reason..."
+              rows={4}
+              className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
+            />
+            <div className="flex items-center gap-3 mt-6">
+              <button
+                onClick={handleReject}
+                disabled={isProcessing || !rejectComment.trim()}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isProcessing ? 'Processing...' : 'Reject'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowRejectModal(false);
+                  setRejectComment('');
+                }}
+                disabled={isProcessing}
+                className="flex-1 px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

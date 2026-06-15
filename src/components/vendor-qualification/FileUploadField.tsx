@@ -182,11 +182,11 @@ export default function FileUploadField({
         <p className="text-sm text-red-600">{error}</p>
       )}
 
-      {!qualificationId && (
+      {/* {!qualificationId && (
         <p className="text-xs text-amber-600">
           ⚠️ Please save your form first before uploading documents
         </p>
-      )}
+      )} */}
     </div>
   );
 }

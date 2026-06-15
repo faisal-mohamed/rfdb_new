@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
+import { canSubmitVendorQualification, UserRole } from '@/lib/vendorPermissions';
 
-// POST - Submit vendor qualification for review
+// POST - Submit vendor qualification for review (role-based)
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -34,9 +35,15 @@ export async function POST(
       );
     }
 
-    if (existing.submittedBy !== session.user.id) {
+    // Check submit permissions using RBAC
+    if (!canSubmitVendorQualification(
+      session.user.role as UserRole,
+      existing.submittedBy,
+      session.user.id,
+      existing.status as any
+    )) {
       return NextResponse.json(
-        { error: 'Not authorized to submit this qualification' },
+        { error: 'You do not have permission to submit this qualification. Only the owner or ADMIN can submit DRAFT qualifications.' },
         { status: 403 }
       );
     }
@@ -51,12 +58,24 @@ export async function POST(
     // Validate required data
     const validationErrors: string[] = [];
 
-    if (!existing.organizationName) validationErrors.push('Organization name is required');
-    if (!existing.incorporationDate) validationErrors.push('Incorporation date is required');
-    if (!existing.email) validationErrors.push('Email is required');
-    if (!existing.telephone) validationErrors.push('Telephone is required');
-    if (existing.directors.length === 0) validationErrors.push('At least one director is required');
-    if (existing.references.length === 0) validationErrors.push('At least one reference is required');
+    if (!existing.organizationName || existing.organizationName.trim() === '') {
+      validationErrors.push('Organization name is required');
+    }
+    if (!existing.incorporationDate) {
+      validationErrors.push('Incorporation date is required (Step 1: General Information)');
+    }
+    if (!existing.email || existing.email.trim() === '') {
+      validationErrors.push('Email is required');
+    }
+    if (!existing.telephone || existing.telephone.trim() === '') {
+      validationErrors.push('Telephone is required');
+    }
+    if (existing.directors.length === 0) {
+      validationErrors.push('At least one director is required (Step 2: Banking & Directors)');
+    }
+    if (existing.references.length === 0) {
+      validationErrors.push('At least one reference is required (Step 3: References)');
+    }
 
     if (validationErrors.length > 0) {
       return NextResponse.json(

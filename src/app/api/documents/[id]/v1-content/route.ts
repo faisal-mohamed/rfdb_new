@@ -29,6 +29,7 @@ export async function GET(
     }
 
     // Get V1 from database using processId
+    console.log("Searching for V1 with documentId:", processId);
     const v1Version = await prisma.documentVersion.findFirst({
       where: {
         documentId: processId,
@@ -37,10 +38,20 @@ export async function GET(
       orderBy: { versionNumber: 'desc' },
     });
 
-    console.log("v1version: ", v1Version)
+    console.log("v1version found:", v1Version ? "Yes" : "No");
+    if (v1Version) {
+      console.log("v1version id:", v1Version.id);
+      console.log("v1version jsonContent structure:", v1Version.jsonContent ? Object.keys(v1Version.jsonContent) : "null");
+    }
 
     if (!v1Version) {
-      return NextResponse.json({ error: 'V1 not found' }, { status: 404 });
+      // Return a more descriptive response instead of 404
+      // This helps frontend distinguish between "not generated yet" vs "error"
+      return NextResponse.json({ 
+        error: 'V1 not found',
+        message: 'V1 version has not been generated yet. Please generate V1 first.',
+        notGenerated: true 
+      }, { status: 404 });
     }
 
     return NextResponse.json(v1Version.jsonContent);

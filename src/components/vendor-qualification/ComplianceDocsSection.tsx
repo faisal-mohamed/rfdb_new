@@ -51,7 +51,7 @@ export default function ComplianceDocsSection({ qualificationId }: Props) {
 
       {/* ABSA Bank Requirements */}
       <div className="space-y-6">
-        <h3 className="text-lg font-semibold text-slate-800 border-b pb-2">ABSA Bank Requirements</h3>
+        <h3 className="text-lg font-semibold text-slate-800 border-b pb-2">Vendor Documents</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <FileUploadField
             label="1. Letter of Confirmation from Bank"
@@ -177,24 +177,52 @@ export default function ComplianceDocsSection({ qualificationId }: Props) {
         </div>
       </div>
 
-      {/* Info Box */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-start gap-3">
-          <div className="text-blue-600 text-xl">💡</div>
-          <div>
-            <h3 className="font-semibold text-blue-900 mb-1">Important Notes</h3>
-            <ul className="text-sm text-blue-800 list-disc list-inside space-y-1">
-              <li>All documents should be in PDF format (images acceptable for utility bills)</li>
-              <li>File size limit: 10MB per document</li>
-              <li>Self-declarations can be uploaded as signed PDF documents</li>
-              <li>Ensure all documents are current and valid</li>
-            </ul>
-          </div>
-        </div>
-      </div>
+      
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

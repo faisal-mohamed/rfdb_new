@@ -2,13 +2,27 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-config';
 import { prisma } from '@/lib/prisma';
+import { 
+  canViewAllVendorQualifications, 
+  canViewVendorQualifications, 
+  canCreateVendorQualification,
+  UserRole 
+} from '@/lib/vendorPermissions';
 
-// GET - List all vendor qualifications with pagination and filters
+// GET - List vendor qualifications with pagination and filters (role-based)
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if user can view vendor qualifications
+    if (!canViewVendorQualifications(session.user.role as UserRole)) {
+      return NextResponse.json(
+        { error: 'You do not have permission to view vendor qualifications' },
+        { status: 403 }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -21,6 +35,12 @@ export async function GET(request: NextRequest) {
 
     // Build filter conditions
     const where: any = {};
+    
+    // Role-based filtering: Only ADMIN and APPROVER can view all qualifications
+    // Others can only view their own
+    if (!canViewAllVendorQualifications(session.user.role as UserRole)) {
+      where.submittedBy = session.user.id;
+    }
     
     if (status) {
       where.status = status;
@@ -84,7 +104,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST - Create new vendor qualification (draft)
+// POST - Create new vendor qualification (draft) - Role-based
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -92,16 +112,40 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Check if user can create vendor qualifications (only EDITOR and ADMIN)
+    if (!canCreateVendorQualification(session.user.role as UserRole)) {
+      return NextResponse.json(
+        { error: 'You do not have permission to create vendor qualifications. Only EDITOR and ADMIN roles can create.' },
+        { status: 403 }
+      );
+    }
+
     const body = await request.json();
 
     // Extract nested data
     const { directors, references, personnel, documents, ...mainData } = body;
 
+    // Validate and parse incorporationDate
+    let parsedIncorporationDate: Date;
+    if (mainData.incorporationDate && mainData.incorporationDate.trim() !== '') {
+      parsedIncorporationDate = new Date(mainData.incorporationDate);
+      // Check if date is valid
+      if (isNaN(parsedIncorporationDate.getTime())) {
+        return NextResponse.json(
+          { error: 'Invalid incorporation date format. Please use YYYY-MM-DD format.' },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Use current date as fallback for drafts
+      parsedIncorporationDate = new Date();
+    }
+
     // Create vendor qualification with related data
     const qualification = await prisma.vendorQualification.create({
       data: {
         ...mainData,
-        incorporationDate: new Date(mainData.incorporationDate),
+        incorporationDate: parsedIncorporationDate,
         totalEmployees: parseInt(mainData.totalEmployees) || 0,
         managementTeam: parseInt(mainData.managementTeam) || 0,
         technicalTeam: parseInt(mainData.technicalTeam) || 0,
